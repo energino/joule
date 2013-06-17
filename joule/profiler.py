@@ -40,8 +40,10 @@ import time
 import threading
 import math
 import numpy
+import serial
+import glob
+import datetime
 
-from energino import PyEnergino
 from click import read_handler, write_handler
 
 DEFAULT_DEVICE = '/dev/ttyACM0'
@@ -50,63 +52,153 @@ DEFAULT_INTERVAL = 500
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 DEFAULT_JOULE = '~/joule.json'
 
-class ModellerLogger(threading.Thread):
+def unpack_energino_v1(line):
+    logging.debug("line: %s" % line.replace('\n',''))
+    if type(line) is str and len(line) > 0 and line[0] == "#" and line[-1] == '\n':
+        readings = line[1:-1].split(",")
+        if len(readings) == 14:
+            return { 'voltage' : float(readings[2]), 
+                'current' : float(readings[3]), 
+                'power' : float(readings[4]), 
+                'switch' : int(readings[5]), 
+                'window' : int(readings[6]), 
+                'samples' : int(readings[7]), 
+                'ip' : readings[8], 
+                'server_port' : readings[9], 
+                'host' : readings[10], 
+                'host_port' : readings[11], 
+                'feed' : readings[12], 
+                'key' : readings[13]}
+    raise Exception, "invalid line: %s" % line[0:-1]
+
+MODELS = { "Energino" : { 1 : unpack_energino_v1 } }
+
+class PyEnergino(object):
+
+    def __init__(self, port=DEFAULT_DEVICE, bps=DEFAULT_DEVICE_SPEED, interval = DEFAULT_INTERVAL):
+        self.interval = interval
+        self.ser = serial.Serial(baudrate=bps, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS)
+        devs = glob.glob(port + "*")
+        for dev in devs:
+            logging.debug("scanning %s" % dev)
+            self.ser.port = dev
+            self.ser.open()
+            time.sleep(2)
+            try:
+                self.configure()
+            except:
+                try:
+                    self.configure()
+                except:
+                    self.configure()
+            self.send_cmds([ "#P%u" % self.interval ])
+            try:
+                self.unpack(self.ser.readline())
+            except:
+                try:
+                    self.unpack(self.ser.readline())
+                except:
+                    self.unpack(self.ser.readline())
+                    
+            logging.debug("attaching to port %s!" % dev)
+            return
+        raise Exception, "unable to configure serial port"
+
+    def send_cmd(self, cmd):
+        logging.debug("sending initialization sequence %s" % cmd)
+        self.write(cmd + '\n')
+        time.sleep(2)
+        self.unpack(self.ser.readline())
+
+    def send_cmds(self, cmds):
+        for cmd in cmds:           
+            self.send_cmd(cmd)
+                
+    def configure(self):
+        line = self.ser.readline()
+        logging.debug("line: %s" % line.replace('\n',''))
+        if type(line) is str and len(line) > 0 and line[0] == "#" and line[-1] == '\n':
+            readings = line[1:-1].split(",")
+            if readings[0] in MODELS.keys():
+                logging.debug("found %s version %u" % (readings[0], int(readings[1])))
+                self.unpack = MODELS[readings[0]][int(readings[1])]
+                return
+        raise Exception, "unable to identify model: %s" % line
+
+    def write(self, value):
+        self.ser.flushOutput()
+        self.ser.write(value)
+
+    def fetch(self):
+        self.ser.flushInput()
+        readings = self.unpack(self.ser.readline())
+        readings['port'] = self.ser.port
+        readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        delta = math.fabs(self.interval - readings['window'])
+        if delta / self.interval > 0.1:
+            logging.debug("polling drift is higher than 10%%, target is %u actual is %u" % (self.interval, readings['window']))
+        return readings
     
-    def __init__(self, options, virtual=False, stint=None):
+class Modeller(threading.Thread):
+    
+    def __init__(self, options):
 
         super(ModellerLogger, self).__init__()
         self.stop = threading.Event()
         self.daemon = True
-        self.virtual = virtual
         self.interval = int(options.interval)
         self.device = options.device
         self.bps = options.bps
-        self.bitrate = stint['bitrate_mbps']
-        self.packetsize = stint['packetsize_bytes']
+        self.readings = []
+
+    def run(self):
+        
+        logging.info("starting energino")
+        energino = PyEnergino(self.device, self.bps, self.interval)
+
+        while True:
+            readings = energino.fetch()
+            self.readings.append(readings['power'])
+
+    def shutdown(self):
+        logging.info("stopping energino")
+        self.stop.set()
+
+class VirtualModeller(threading.Thread):
+    
+    def __init__(self, interval, bitrate, packetsize):
+        super(ModellerLogger, self).__init__()
+        self.stop = threading.Event()
+        self.daemon = True
+        self.bitrate = bitrate
+        self.packetsize = packetsize
+        self.interval = interval
         self.readings = []
 
     def compute_virtual_power(self, bitrate, packetsize):
-
         from random import randint
-
         r = float(randint(1,1000))/10000
-
         if bitrate == 0:
             return 3.84 + r
-
         if bitrate > 20:
             return 4.6 + r
-
         base = bitrate * 0.0259 + 3.84
-
         if packetsize < 64:
             corr = 5.595 - 3.84
         else:
             corr = -0.2287 * math.log(packetsize) + 5.595 - 3.84
-
         return base + corr + r
         
     def run(self):
-        
-        logging.info("starting modeler")
-
-        if not self.virtual:
-            energino = PyEnergino(self.device, self.bps, self.interval)
-
+        logging.info("starting virtual energino")
         while True:
-            if not self.virtual:
-                energino.ser.flushInput()
-                readings = energino.fetch()
-                self.readings.append(readings['power'])
-            else:
-                pw =  self.compute_virtual_power(self.bitrate, self.packetsize)
-                self.readings.append(pw)
-                time.sleep(float(self.interval) / 1000)
+            self.readings.append(self.compute_virtual_power(self.bitrate, self.packetsize))
+            time.sleep(float(self.interval) / 1000)
 
     def shutdown(self):
-        logging.info("stopping modeler")
+        logging.info("stopping virtual energino")
         self.stop.set()
-
+        
 def sigint_handler(signal, frame):
     logging.info("Received SIGINT, terminating...")
     global ml
@@ -198,6 +290,7 @@ def main():
     p.add_option('--bps', '-b', dest="bps", default=DEFAULT_DEVICE_SPEED)
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
+    p.add_option('--virtual', '-e', action="store_true", dest="virtual", default=False)    
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
@@ -243,7 +336,11 @@ def main():
         src.reset()
         dst.reset()
 
-        ml = ModellerLogger(options, True, stint)
+        if options.virtual:
+            ml = VirtualModeller(options.interval, stint['bitrate_mbps'], stint['packetsize_bytes'])
+        else:
+            ml = Modeller(options)
+            
         ml.start()
 
         src.execute_stint(stint)

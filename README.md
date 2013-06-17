@@ -1,4 +1,4 @@
 joule
 =====
 
-Joule is a energy profiler for Energino
+Joule is an energy consumption profiler for WLANs

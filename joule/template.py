@@ -26,8 +26,8 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-A command line utility for interfacing with the energino power 
-consumption monitor.
+The Joule Profiler. For the moment it supports only two probes communicating with
+each other using UDP CBR streams.
 """
 
 import os
@@ -116,13 +116,19 @@ def main():
     joule['probes'] = {
         "A": {
             "ip": options.probea,
+            "receiver": options.probeb,
+            "sender_port": 9997,
             "receiver_port": 9998,
-            "receiver_control": 8888
+            "receiver_control": 8888,
+            "sender_control": 8889
         },
         "B": {
             "ip": options.probeb,
+            "receiver": options.probea,
+            "sender_port": 9998,
             "receiver_port": 9997,
-            "receiver_control": 7777
+            "receiver_control": 7777,
+            "sender_control": 7778
         }
     }
 

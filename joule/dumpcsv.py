@@ -26,8 +26,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-A command line utility for interfacing with the energino power 
-consumption monitor.
+Joule Dump CSV.
 """
 
 import os

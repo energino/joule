@@ -26,8 +26,12 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-A command line utility for interfacing with the energino power 
-consumption monitor.
+The Joule Daemon. At least two daemons should be configured on a network. 
+Daemons are controller by Joule Profiler which can trigger different traffic 
+generation patterns. At the moment only UDP CBR flows are supported. Daemons
+can be started using CLI options (not recommended) or by passing a Joule 
+descriptor file generated with the joule-template command and by specifying
+the probe id.
 """
 
 import os
@@ -37,8 +41,8 @@ import logging
 import threading
 import subprocess
 
-CLICK_SENDER = "/usr/local/bin/click -e \"src :: RatedSource(ACTIVE false) -> counter_client :: Counter() -> tr_client :: TimeRange() -> Socket(UDP, %s, %u); ControlSocket(TCP, %u);\""
-CLICK_RECEIVER = "/usr/local/bin/click -e \"Socket(UDP, 0.0.0.0, %u) -> counter_server :: Counter()-> tr_server :: TimeRange() -> Discard(); ControlSocket(TCP, %u);\"" 
+CLICK_SENDER = "src :: RatedSource(ACTIVE false) -> counter_client :: Counter() -> tr_client :: TimeRange() -> Socket(UDP, %s, %u); ControlSocket(TCP, %u);"
+CLICK_RECEIVER = "Socket(UDP, 0.0.0.0, %u) -> counter_server :: Counter()-> tr_server :: TimeRange() -> Discard(); ControlSocket(TCP, %u);" 
 DEFAULT_RECEIVER_IP = "172.16.0.172"
 DEFAULT_RECEIVER_PORT = 9998
 DEFAULT_SENDER_PORT = 9999
@@ -49,9 +53,9 @@ LOG_FORMAT = '%(asctime)-15s %(message)s'
 class ClickDaemon(threading.Thread):
     def __init__(self, script, mode):
         super(ClickDaemon, self).__init__()
-        self.script = script
+        logging.debug(script)
+        self.script = "/usr/local/bin/click -e \"%s\"" % script
         self.mode = mode
-        logging.debug(self.script)
     def run(self):
         logging.info("starting click process (%s)" % self.mode)
         p = subprocess.Popen(self.script, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -69,39 +73,30 @@ def main():
     p.add_option('--sender_port', '-s', dest="sport", default=DEFAULT_SENDER_PORT)
     p.add_option('--control', '-c', dest="control", default=DEFAULT_CONTROL)
     p.add_option('--joule', '-j', dest="joule", default=None)
-    p.add_option('--probea', '-a', action="store_true", dest="a", default=None)
-    p.add_option('--probeb', '-b', action="store_true", dest="b", default=None)
+    p.add_option('--probe', '-p', dest="probe", default=None)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
    
-    if options.a and options.b:
-        p.error("options -a and -b are mutually exclusive")
-    
     if options.verbose:
-        lvl = logging.DEBUG
+        logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
     else:
-        lvl = logging.INFO
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
 
-    logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
+    logging.info("starting eJOULE daemon")
 
-    if options.joule != None and (options.a or options.b):
+    if options.joule != None and options.probe != None:
         
+        logging.info("using probe profile %s" % options.probe)
+    
         with open(os.path.expanduser(options.joule)) as data_file:    
             joule = json.load(data_file)
 
-        if options.a:
-            receiver = joule['probes']['B']['ip']
-            rport = joule['probes']['B']['receiver_port']
-            sport = joule['probes']['A']['receiver_port']
-            scontrol = joule['probes']['A']['receiver_control'] + 1
-            rcontrol = joule['probes']['A']['receiver_control']
-        else:
-            receiver = joule['probes']['A']['ip']
-            rport = joule['probes']['A']['receiver_port']
-            sport = joule['probes']['B']['receiver_port']
-            scontrol = joule['probes']['B']['receiver_control'] + 1
-            rcontrol = joule['probes']['B']['receiver_control']
+        receiver = joule['probes'][options.probe]['receiver']
+        sport = joule['probes'][options.probe]['sender_port']
+        rport = joule['probes'][options.probe]['receiver_port']
+        scontrol = joule['probes'][options.probe]['sender_control']
+        rcontrol = joule['probes'][options.probe]['receiver_control']
 
     else:
 
@@ -111,7 +106,6 @@ def main():
         rcontrol = int(options.control)
         scontrol = int(options.control) + 1
 
-    logging.info("starting eJOULE daemon")
     logging.info("receiver ip address: %s" % receiver)
     logging.info("receiver port: %s" % rport)
     logging.info("sender port: %s" % sport)

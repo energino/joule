@@ -26,7 +26,8 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-A command line utility for interfacing with the click modular router
+This module handles the communications ControlSocket element. It supports basic
+READ and WRITE handler. It does NOT support multiple read/write statement. 
 """
 
 import socket

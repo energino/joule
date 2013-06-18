@@ -26,8 +26,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-A command line utility for interfacing with the energino power 
-consumption monitor.
+The Joule Profiler.
 """
 
 import os
@@ -143,7 +142,7 @@ class Modeller(threading.Thread):
     
     def __init__(self, options):
 
-        super(ModellerLogger, self).__init__()
+        super(Modeller, self).__init__()
         self.stop = threading.Event()
         self.daemon = True
         self.interval = int(options.interval)
@@ -167,7 +166,7 @@ class Modeller(threading.Thread):
 class VirtualModeller(threading.Thread):
     
     def __init__(self, interval, bitrate, packetsize):
-        super(ModellerLogger, self).__init__()
+        super(VirtualModeller, self).__init__()
         self.stop = threading.Event()
         self.daemon = True
         self.bitrate = bitrate
@@ -312,7 +311,7 @@ def main():
     signal.signal(signal.SIGINT, sigint_handler)
     signal.signal(signal.SIGTERM, sigint_handler)
 
-    logging.info("starting eJOULE modeler")
+    logging.info("starting eJOULE profiler")
     
     global ml
 

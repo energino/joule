@@ -13,7 +13,7 @@ setup(name="joule",
 	author_email="roberto.riggio@create-net.org",
 	url="https://github.com/rriggio/joule",
 	long_description="Joule is an energy consumption profiler for WLANs",
-	entry_points={"console_scripts": ["joule-daemon=joule.daemon:main", "joule-profiler=joule.profiler:main", "joule-modeller=joule.modeller:main", "joule-csv=joule.csv:main", "joule-template=joule.template:main"]},
+	entry_points={"console_scripts": ["joule-daemon=joule.daemon:main", "joule-profiler=joule.profiler:main", "joule-modeller=joule.modeller:main", "joule-dumpcsv=joule.dumpcsv:main", "joule-template=joule.template:main"]},
 	packages=['joule'],
 	license = "Python",
 	platforms="any"

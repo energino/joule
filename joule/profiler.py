@@ -308,16 +308,11 @@ def main():
 
     with open(expanded_path) as data_file:    
         data = json.load(data_file)
-    
-    probes = data['probes']
-    stints = data['stints']
 
     if options.verbose:
-        lvl = logging.DEBUG
+        logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
     else:
-        lvl = logging.INFO
-
-    logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
 
     signal.signal(signal.SIGINT, sigint_handler)
     signal.signal(signal.SIGTERM, sigint_handler)
@@ -328,18 +323,18 @@ def main():
 
     probeObjs = {}
 
-    for probe in probes:
-        probeObjs[probe] = Probe(probes[probe])
+    for probe in data['probes']:
+        probeObjs[probe] = Probe(data['probes'][probe])
 
-    for i in range(0, len(stints)):
+    for i in range(0, len(data['stints'])):
 
-        stint = stints[i]
+        stint = data['stints'][i]
 
         src = probeObjs[stint['src']]
         dst = probeObjs[stint['dst']]
 
         # run tests (A->B)
-        state = (i+1, len(stints), src.ip, dst.ip, dst.receiver_port)
+        state = (i+1, len(data['stints']), src.ip, dst.ip, dst.receiver_port)
         logging.info('--------------------------------------------------------------')
         logging.info("running profile %u/%u, %s -> %s:%u" % state)
 

@@ -243,9 +243,20 @@ class Probe(object):
         status['server_interval'] = float(self._dh(read_handler(self.ip, self.receiver_control, 'tr_server.interval'))[2])
         return status
 
+    def _bps_to_human(self, bps):
+        
+        if bps >= 1000000:
+            return "%u Mbps" % (float(bps) / 1000000)
+        elif bps >= 100000:
+            return "%u Kbps" % (float(bps) / 1000)
+        else:
+            return "%u bps" % bps
+            
+
     def execute_stint(self, stint):
         
-        self._packet_rate = int(stint['bitrate_mbps'] * 1000000 / (stint['packetsize_bytes'] * 8))
+        self._packet_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
+        
         self._packets_nb = stint['duration_s'] * self._packet_rate
         self._packetsize_bytes = stint['packetsize_bytes'] 
         self._duration = stint['duration_s'] 
@@ -254,7 +265,7 @@ class Probe(object):
         logging.info("transmission rate set to %u pkt/s" % self._packet_rate )
         logging.info("trasmitting a total of %u packets" % self._packets_nb )
         logging.info("trasmitting time is %u s" % self._duration )
-        logging.info("target bitrate is %u bps" % ( self._packet_rate * 8 * self._packetsize_bytes / 2) )         
+        logging.info("target bitrate is %s" % self._bps_to_human(stint['bitrate_mbps'] * 1000000) )         
 
         self._set_length(self._packetsize_bytes)
         self._set_rate(self._packet_rate)
@@ -329,6 +340,7 @@ def main():
 
         # run tests (A->B)
         state = (i+1, len(stints), src.ip, dst.ip, dst.receiver_port)
+        logging.info('--------------------------------------------------------------')
         logging.info("running profile %u/%u, %s -> %s:%u" % state)
 
         # reset probes
@@ -355,10 +367,17 @@ def main():
 
         client_count = stint['results'][stint['src']]['client_count']
         server_count = stint['results'][stint['dst']]['server_count']
-        losses = ( client_count - server_count ) / client_count
         
-        stint['stats'] = { 'median' : median, 'mean' : mean, 'losses' : losses }
-
+        client_interval = stint['results'][stint['src']]['client_interval']
+        server_interval = stint['results'][stint['dst']]['server_interval']
+        
+        tp = float(client_count * stint['packetsize_bytes'] * 8) / client_interval
+        gp = float(server_count * stint['packetsize_bytes'] * 8) / server_interval
+        
+        losses = float( client_count - server_count ) / client_count
+        
+        stint['stats'] = { 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp }
+        
         with open(expanded_path, 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
             

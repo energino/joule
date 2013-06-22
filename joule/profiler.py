@@ -43,132 +43,49 @@ import serial
 import glob
 import datetime
 
+from energino import PyEnergino
 from click import read_handler, write_handler
+from energino import DEFAULT_PORT
+from energino import DEFAULT_PORT_SPEED
+from energino import DEFAULT_INTERVAL
 
-DEFAULT_DEVICE = '/dev/ttyACM0'
-DEFAULT_DEVICE_SPEED = 115200
-DEFAULT_INTERVAL = 500
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 DEFAULT_JOULE = '~/joule.json'
 
-def unpack_energino_v1(line):
-    logging.debug("line: %s" % line.replace('\n',''))
-    if type(line) is str and len(line) > 0 and line[0] == "#" and line[-1] == '\n':
-        readings = line[1:-1].split(",")
-        if len(readings) == 14:
-            return { 'voltage' : float(readings[2]), 
-                'current' : float(readings[3]), 
-                'power' : float(readings[4]), 
-                'switch' : int(readings[5]), 
-                'window' : int(readings[6]), 
-                'samples' : int(readings[7]), 
-                'ip' : readings[8], 
-                'server_port' : readings[9], 
-                'host' : readings[10], 
-                'host_port' : readings[11], 
-                'feed' : readings[12], 
-                'key' : readings[13]}
-    raise Exception, "invalid line: %s" % line[0:-1]
-
-MODELS = { "Energino" : { 1 : unpack_energino_v1 } }
-
-class PyEnergino(object):
-
-    def __init__(self, port=DEFAULT_DEVICE, bps=DEFAULT_DEVICE_SPEED, interval = DEFAULT_INTERVAL):
-        self.interval = interval
-        self.ser = serial.Serial(baudrate=bps, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS)
-        devs = glob.glob(port + "*")
-        for dev in devs:
-            logging.debug("scanning %s" % dev)
-            self.ser.port = dev
-            self.ser.open()
-            time.sleep(2)
-            try:
-                self.configure()
-            except:
-                try:
-                    self.configure()
-                except:
-                    self.configure()
-            self.send_cmds([ "#P%u" % self.interval ])
-            try:
-                self.unpack(self.ser.readline())
-            except:
-                try:
-                    self.unpack(self.ser.readline())
-                except:
-                    self.unpack(self.ser.readline())
-                    
-            logging.debug("attaching to port %s!" % dev)
-            return
-        raise Exception, "unable to configure serial port"
-
-    def send_cmd(self, cmd):
-        logging.debug("sending initialization sequence %s" % cmd)
-        self.write(cmd + '\n')
-        time.sleep(2)
-        self.unpack(self.ser.readline())
-
-    def send_cmds(self, cmds):
-        for cmd in cmds:           
-            self.send_cmd(cmd)
-                
-    def configure(self):
-        line = self.ser.readline()
-        logging.debug("line: %s" % line.replace('\n',''))
-        if type(line) is str and len(line) > 0 and line[0] == "#" and line[-1] == '\n':
-            readings = line[1:-1].split(",")
-            if readings[0] in MODELS.keys():
-                logging.debug("found %s version %u" % (readings[0], int(readings[1])))
-                self.unpack = MODELS[readings[0]][int(readings[1])]
-                return
-        raise Exception, "unable to identify model: %s" % line
-
-    def write(self, value):
-        self.ser.flushOutput()
-        self.ser.write(value)
-
-    def fetch(self):
-        self.ser.flushInput()
-        readings = self.unpack(self.ser.readline())
-        readings['port'] = self.ser.port
-        readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        delta = math.fabs(self.interval - readings['window'])
-        if delta / self.interval > 0.1:
-            logging.debug("polling drift is higher than 10%%, target is %u actual is %u" % (self.interval, readings['window']))
-        return readings
-    
 class Modeller(threading.Thread):
     
     def __init__(self, options):
 
         super(Modeller, self).__init__()
-        self.stop = threading.Event()
+        self.stop_event = threading.Event()
         self.daemon = True
         self.interval = int(options.interval)
         self.device = options.device
         self.bps = options.bps
         self.readings = []
+        logging.info("starting energino")
+        self.energino = PyEnergino(self.device, self.bps, self.interval)
 
     def run(self):
-        
-        logging.info("starting energino")
-        energino = PyEnergino(self.device, self.bps, self.interval)
-
-        while True:
-            readings = energino.fetch()
-            self.readings.append(readings['power'])
+        while not self.stop_event.isSet():
+            try:
+                readings = self.energino.fetch()
+                self.readings.append(readings['power'])
+            except:
+                logging.info("skipped")
 
     def shutdown(self):
         logging.info("stopping energino")
-        self.stop.set()
+        self.energino.ser.close()
+        self.stop_event.set()
+        time.sleep(2)
 
 class VirtualModeller(threading.Thread):
     
     def __init__(self, interval, bitrate, packetsize):
         super(VirtualModeller, self).__init__()
         self.stop = threading.Event()
-        self.daemon = True
+        self.daemon = False
         self.bitrate = bitrate
         self.packetsize = packetsize
         self.interval = interval
@@ -244,14 +161,12 @@ class Probe(object):
         return status
 
     def _bps_to_human(self, bps):
-        
         if bps >= 1000000:
             return "%u Mbps" % (float(bps) / 1000000)
         elif bps >= 100000:
             return "%u Kbps" % (float(bps) / 1000)
         else:
             return "%u bps" % bps
-            
 
     def execute_stint(self, stint):
         
@@ -295,9 +210,9 @@ class Probe(object):
 def main():
 
     p = optparse.OptionParser()
-    p.add_option('--device', '-d', dest="device", default=DEFAULT_DEVICE)
+    p.add_option('--device', '-d', dest="device", default=DEFAULT_PORT)
     p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
-    p.add_option('--bps', '-b', dest="bps", default=DEFAULT_DEVICE_SPEED)
+    p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--virtual', '-e', action="store_true", dest="virtual", default=False)    
@@ -319,8 +234,6 @@ def main():
 
     logging.info("starting eJOULE profiler")
     
-    global ml
-
     probeObjs = {}
 
     for probe in data['probes']:
@@ -342,15 +255,15 @@ def main():
         src.reset()
         dst.reset()
 
+        global ml
+
         if options.virtual:
             ml = VirtualModeller(options.interval, stint['bitrate_mbps'], stint['packetsize_bytes'])
         else:
             ml = Modeller(options)
             
         ml.start()
-
         src.execute_stint(stint)
-
         ml.shutdown()
 
         stint['results'] = {}
@@ -375,6 +288,6 @@ def main():
         
         with open(expanded_path, 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
-            
+        
 if __name__ == "__main__":
     main()

@@ -26,7 +26,8 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-Joule Dump CSV.
+Joule Dump Mat The dumpmat command saves the content of the Joule descriptor and
+the Joule model file in Matlab format. The Matfile
 """
 
 import os
@@ -37,15 +38,18 @@ import numpy as np
 import scipy.io
 
 DEFAULT_JOULE = '~/joule.json'
-DEFAULT_MAT = '~/'
+DEFAULT_MODELS = '~/models.json'
+DEFAULT_OUTPUT_PREFIX = '~/joule'
 
 def main():
 
     p = optparse.OptionParser()
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
-    p.add_option('--mat', '-m', dest="mat", default=DEFAULT_MAT)
+    p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
+    p.add_option('--output', '-o', dest="output", default=DEFAULT_OUTPUT_PREFIX)
     options, _ = p.parse_args()
 
+    # dump joule descriptor
     with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
 
@@ -82,8 +86,26 @@ def main():
         for row in c:
             datum.append(row)
 
-        filename = os.path.expanduser(options.mat + '_%s_%s.mat' % tuple(pair))
-        scipy.io.savemat(filename, dict(RATES=rates, SIZES=sizes, DATA=np.array(datum)), oned_as='row')
+        with open(os.path.expanduser(options.models)) as data_file:    
+            models = json.load(data_file)
+
+        model_rates = []
+        model_sizes = []
+
+        for model in models.values():
+    
+            if model['src'] == pair[0] and model['dst'] == pair[1]:
+
+                if model['select'] == 'bitrate_mbps':
+                    for group in model['groups']:
+                        model_sizes.append([ float(group) ] + model['groups'][group]['params'])
+                    
+                if model['select'] == 'packetsize_bytes':
+                    for group in model['groups']:
+                        model_rates.append([ float(group) ] + model['groups'][group]['params'])
+
+        filename = os.path.expanduser(options.output + '_%s_%s.mat' % tuple(pair))
+        scipy.io.savemat(filename, dict(RATES=rates, SIZES=sizes, DATA=np.array(datum), MODEL_SIZES=np.array(model_sizes), MODEL_RATES=np.array(model_rates)), oned_as='row')
 
 if __name__ == "__main__":
     main()

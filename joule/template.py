@@ -26,8 +26,16 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-The Joule Profiler. For the moment it supports only two probes communicating with
-each other using UDP CBR streams.
+
+The Joule Template. It generate a Joule descriptor to be used with the Joule 
+Daemon(s) and with the Joule Profiler. The generated descriptor defines two
+probes and a list of rates and packet sizes. Stints are defined as all the 
+possible permutations between the rates list and the packets sizes list. It
+is possible to define also the duration of each stint. By default the 
+descriptor is ~/joule.json. The default behavior is the following:
+
+profiler -a 127.0.0.1 -b 127.0.01 -r "1 2 4 8" -s "64 1000 1460" -d 5
+
 """
 
 import os
@@ -56,16 +64,12 @@ def main():
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
-    expanded_path = os.path.expanduser(options.joule)
-
     if options.verbose:
-        lvl = logging.DEBUG
+        logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
     else:
-        lvl = logging.INFO
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
 
-    logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
-
-    joule = { 'probes' : {}, 'stints' : [], 'models' : {} }
+    joule = { 'probes' : {}, 'stints' : [] }
 
     for rate in options.rates.split(" "):
         
@@ -91,28 +95,6 @@ def main():
 
             joule['stints'].append(stint)
     
-    joule['models'] = { 'rx_bitrate' : { 'src' : 'A', 
-                                            'dst': 'B', 
-                                            'select' : 'bitrate_mbps', 
-                                            'group_by' : 'packetsize_bytes', 
-                                            'lambda' : 'lambda x, a, b: a*x + b' }, 
-                        'rx_packetsize' : { 'src' : 'A', 
-                                         'dst': 'B', 
-                                         'select' : 'packetsize_bytes', 
-                                         'group_by' : 'bitrate_mbps', 
-                                         'lambda' : 'lambda x, a, b: -a*x + b' },
-                        'tx_bitrate' : { 'src' : 'B', 
-                                            'dst': 'A', 
-                                            'select' : 'bitrate_mbps', 
-                                            'group_by' : 'packetsize_bytes', 
-                                            'lambda' : 'lambda x, a, b: a*x + b' }, 
-                        'tx_packetsize' : { 'src' : 'B', 
-                                         'dst': 'A', 
-                                         'select' : 'packetsize_bytes', 
-                                         'group_by' : 'bitrate_mbps', 
-                                         'lambda' : 'lambda x, a, b: -a*x + b' }                       
-                       } 
-
     joule['probes'] = {
         "A": {
             "ip": options.probea,
@@ -132,7 +114,7 @@ def main():
         }
     }
 
-    with open(expanded_path, 'w') as data_file:    
+    with open(os.path.expanduser(options.joule), 'w') as data_file:    
         json.dump(joule, data_file, sort_keys=True, indent=4, separators=(',', ': '))
             
 if __name__ == "__main__":

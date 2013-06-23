@@ -26,7 +26,10 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-The Joule Modeller.
+The Joule Modeller. The Modeller takes as input a Joule descriptor saved by
+the Joule profiler and a JSON document defining the models to be generated 
+and computes the parameters that produce the best fitting between empirical 
+data and models.
 """
 
 import os
@@ -34,61 +37,81 @@ import json
 import optparse
 import logging 
 import sqlite3
+import math
 import numpy as np
 from scipy.optimize import curve_fit
 
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 DEFAULT_JOULE = '~/joule.json'
+DEFAULT_MODELS = '~/models.json'
 
 def main():
 
     p = optparse.OptionParser()
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
+    p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
+    p.add_option('--delete', '-d', action="store_true", dest="delete", default=False)    
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
     with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
 
+    with open(os.path.expanduser(options.models)) as data_file:    
+        models = json.load(data_file)
+
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
     else:
         logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
-   
-    conn = sqlite3.connect(':memory:')
-    c = conn.cursor()
-    c.execute('''create table data (src, dst, bitrate_mbps, packetsize_bytes, losses, median, mean)''')
-    conn.commit()
 
-    logging.info("starting eJOULE modeller")
-    logging.info("importing data into db")
+    if options.delete:
 
-    for stint in data['stints']:
-        row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
-        c.execute("""insert into data values (?,?,?,?,?,?,?)""", row)
+        logging.info("starting eJOULE modeller")
+        logging.info("deleting models")
+
+        for model in models.values():
+            if 'groups' in model:
+                del model['groups']
+
+    else:
+
+        logging.info("starting eJOULE modeller")
+        logging.info("importing data into db")
+    
+        conn = sqlite3.connect(':memory:')
+        c = conn.cursor()
+        c.execute('''create table data (src, dst, bitrate_mbps, packetsize_bytes, losses, median, mean)''')
         conn.commit()
-
-    logging.info("generating models")
-    for model in data['models'].values():
-
-        groups = []
-        c.execute("select %s from data group by %s" % (model['group_by'], model['group_by']))
-        for row in c:
-            groups.append(row[0])
+    
+        for stint in data['stints']:
+            row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
+            c.execute("""insert into data values (?,?,?,?,?,?,?)""", row)
+            conn.commit()
+    
+        logging.info("generating models")
+        
+        for model in models.values():
             
-        model['groups'] = {}
-        for group in groups:
-            model['groups'][group] = { 'points' : [], 'params' : None }
-            c.execute("select %s, median from data where src = \"%s\" and dst = \"%s\" and %s = %s" % (model['select'], model['src'], model['dst'], model['group_by'], group))
+            groups = []
+            c.execute("select %s from data group by %s" % (model['group_by'], model['group_by']))
             for row in c:
-                model['groups'][group]['points'].append(row)
-            A = np.array(model['groups'][group]['points'])
-            popt, _ = curve_fit(eval(model['lambda']), A[:,0], A[:,1])
-            model['groups'][group]['params'] = list(popt)
+                groups.append(float(row[0]))
+                
+            model['groups'] = {}
+            for group in groups:
+                model['groups'][group] = { 'points' : [], 'params' : None }
+                c.execute("select %s, median from data where src = \"%s\" and dst = \"%s\" and %s = %s" % (model['select'], model['src'], model['dst'], model['group_by'], group))
+                for row in c:
+                    model['groups'][group]['points'].append(row)
+                A = np.array(model['groups'][group]['points'])
+                popt, _ = curve_fit(eval(model['func']), A[:,0], A[:,1])
+                model['groups'][group]['params'] = list(popt)
+                del model['groups'][group]['points']
 
-    with open(os.path.expanduser(options.joule), 'w') as data_file:    
-        json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+    with open(os.path.expanduser(options.models), 'w') as data_file:    
+        json.dump(models, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
 if __name__ == "__main__":
     main()

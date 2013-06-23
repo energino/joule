@@ -26,7 +26,10 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-Joule Dump CSV.
+Joule Dump CSV. The dumpcsv commands outputs the content of a Joule descriptor
+to CSV format. Noticice that the Joule descriptor must be the one saved by the
+Joule profiler, i.e. it must contain the power consumption statistics. The csv
+is printed to the standard output.
 """
 
 import os

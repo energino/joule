@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright (c) 2012, Roberto Riggio
+# Copyright (c) 2013, Roberto Riggio
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without

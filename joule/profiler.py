@@ -26,7 +26,12 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-The Joule Profiler.
+The Joule Profiler. The profiler accepts as input a Joule descriptor defining 
+the probes available on the network and the stints to be executed. The output
+is written in the original Joule descriptor and includes the total number of
+packet TX/RX, the goodput and the throughput, the average packet loss and the
+median/mean power consuption. Before starting the stints the profiler measures
+the idle power consumption.
 """
 
 import os
@@ -39,15 +44,9 @@ import time
 import threading
 import math
 import numpy
-import serial
-import glob
-import datetime
 
-from energino import PyEnergino
 from click import read_handler, write_handler
-from energino import DEFAULT_PORT
-from energino import DEFAULT_PORT_SPEED
-from energino import DEFAULT_INTERVAL
+from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
 
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 DEFAULT_JOULE = '~/joule.json'
@@ -85,7 +84,7 @@ class VirtualModeller(threading.Thread):
     def __init__(self, interval, bitrate, packetsize):
         super(VirtualModeller, self).__init__()
         self.stop = threading.Event()
-        self.daemon = False
+        self.daemon = True
         self.bitrate = bitrate
         self.packetsize = packetsize
         self.interval = interval
@@ -93,13 +92,12 @@ class VirtualModeller(threading.Thread):
 
     def compute_virtual_power(self, bitrate, packetsize):
         from random import randint
-        r = float(randint(1,1000))/10000
-        if bitrate == 0:
-            return 3.84 + r
+        r = float(randint(1,1000) - 500) / 20000
         if bitrate > 20:
-            return 4.6 + r
-        base = bitrate * 0.0259 + 3.84
-        if packetsize < 64:
+            base = 4.6
+        else:
+            base = bitrate * 0.04 + 3.84
+        if packetsize <= 60:
             corr = 5.595 - 3.84
         else:
             corr = -0.2287 * math.log(packetsize) + 5.595 - 3.84
@@ -233,6 +231,24 @@ def main():
     signal.signal(signal.SIGTERM, sigint_handler)
 
     logging.info("starting eJOULE profiler")
+
+    logging.info("measuring idle power consumption")
+    
+    global ml
+
+    if options.virtual:
+        ml = VirtualModeller(options.interval, 0, 0)
+    else:
+        ml = Modeller(options)
+        
+    ml.start()
+    time.sleep(5)
+    ml.shutdown()
+    
+    median = numpy.median(ml.readings)
+    mean = numpy.mean(ml.readings)
+
+    data['idle'] = { 'median' : median, 'mean' : mean }
     
     probeObjs = {}
 
@@ -246,16 +262,13 @@ def main():
         src = probeObjs[stint['src']]
         dst = probeObjs[stint['dst']]
 
-        # run tests (A->B)
-        state = (i+1, len(data['stints']), src.ip, dst.ip, dst.receiver_port)
-        logging.info('--------------------------------------------------------------')
-        logging.info("running profile %u/%u, %s -> %s:%u" % state)
+        # run stint
+        logging.info('-----------------------------------------------------')
+        logging.info("running profile %u/%u, %s -> %s:%u" % (i+1, len(data['stints']), src.ip, dst.ip, dst.receiver_port))
 
         # reset probes
         src.reset()
         dst.reset()
-
-        global ml
 
         if options.virtual:
             ml = VirtualModeller(options.interval, stint['bitrate_mbps'], stint['packetsize_bytes'])

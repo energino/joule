@@ -71,7 +71,7 @@ class Modeller(threading.Thread):
                 readings = self.energino.fetch()
                 self.readings.append(readings['power'])
             except:
-                logging.info("skipped")
+                pass
 
     def shutdown(self):
         logging.info("stopping energino")
@@ -177,7 +177,7 @@ class Probe(object):
         logging.info("payload length is %u bytes" % self._packetsize_bytes )
         logging.info("transmission rate set to %u pkt/s" % self._packet_rate )
         logging.info("trasmitting a total of %u packets" % self._packets_nb )
-        logging.info("trasmitting time is %u s" % self._duration )
+        logging.info("trasmitting time is %us" % self._duration )
         logging.info("target bitrate is %s" % self._bps_to_human(stint['bitrate_mbps'] * 1000000) )         
 
         self._set_length(self._packetsize_bytes)
@@ -185,6 +185,7 @@ class Probe(object):
         self._set_limit(self._packets_nb)
 
         self._start()
+        logging.info("running stint...")
         time.sleep(self._duration)
         self._stop()
 
@@ -236,20 +237,6 @@ def main():
     
     global ml
 
-    if options.virtual:
-        ml = VirtualModeller(options.interval, 0, 0)
-    else:
-        ml = Modeller(options)
-        
-    ml.start()
-    time.sleep(5)
-    ml.shutdown()
-    
-    median = numpy.median(ml.readings)
-    mean = numpy.mean(ml.readings)
-
-    data['idle'] = { 'median' : median, 'mean' : mean }
-    
     probeObjs = {}
 
     for probe in data['probes']:
@@ -285,6 +272,7 @@ def main():
         
         median = numpy.median(ml.readings)
         mean = numpy.mean(ml.readings)
+        ci = 1.96 * (numpy.std(ml.readings) / numpy.sqrt(len(ml.readings)) )
 
         client_count = stint['results'][stint['src']]['client_count']
         server_count = stint['results'][stint['dst']]['server_count']
@@ -297,7 +285,7 @@ def main():
         
         losses = float( client_count - server_count ) / client_count
         
-        stint['stats'] = { 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp }
+        stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp }
         
         with open(expanded_path, 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))

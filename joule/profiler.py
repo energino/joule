@@ -48,8 +48,13 @@ import numpy
 from click import read_handler, write_handler
 from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
 
+PROFILES = { '11b' : { 'MAX_TPS_TCP' : 479, 'MAX_TPS_UDP' : 635 }, 
+             '11a' : { 'MAX_TPS_TCP' : 2336, 'MAX_TPS_UDP' : 3105 }, 
+             '11g' : { 'MAX_TPS_TCP' : 2336, 'MAX_TPS_UDP' : 3105 } }
+
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 DEFAULT_JOULE = '~/joule.json'
+DEFAULT_PROFILE = '11g'
 
 class Modeller(threading.Thread):
     
@@ -112,7 +117,15 @@ class VirtualModeller(threading.Thread):
     def shutdown(self):
         logging.info("stopping virtual energino")
         self.stop.set()
-        
+
+def bps_to_human(bps):
+    if bps >= 1000000:
+        return "%u Mbps" % (float(bps) / 1000000)
+    elif bps >= 100000:
+        return "%u Kbps" % (float(bps) / 1000)
+    else:
+        return "%u bps" % bps
+
 def sigint_handler(signal, frame):
     logging.info("Received SIGINT, terminating...")
     global ml
@@ -158,14 +171,6 @@ class Probe(object):
         status['server_interval'] = float(self._dh(read_handler(self.ip, self.receiver_control, 'tr_server.interval'))[2])
         return status
 
-    def _bps_to_human(self, bps):
-        if bps >= 1000000:
-            return "%u Mbps" % (float(bps) / 1000000)
-        elif bps >= 100000:
-            return "%u Kbps" % (float(bps) / 1000)
-        else:
-            return "%u bps" % bps
-
     def execute_stint(self, stint):
         
         self._packet_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
@@ -178,7 +183,7 @@ class Probe(object):
         logging.info("transmission rate set to %u pkt/s" % self._packet_rate )
         logging.info("trasmitting a total of %u packets" % self._packets_nb )
         logging.info("trasmitting time is %us" % self._duration )
-        logging.info("target bitrate is %s" % self._bps_to_human(stint['bitrate_mbps'] * 1000000) )         
+        logging.info("target bitrate is %s" % bps_to_human(stint['bitrate_mbps'] * 1000000) )         
 
         self._set_length(self._packetsize_bytes)
         self._set_rate(self._packet_rate)
@@ -213,6 +218,7 @@ def main():
     p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
     p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
+    p.add_option('--profile', '-p', dest="profile", default=DEFAULT_PROFILE)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--virtual', '-e', action="store_true", dest="virtual", default=False)    
     p.add_option('--log', '-l', dest="log")
@@ -233,8 +239,6 @@ def main():
 
     logging.info("starting eJOULE profiler")
 
-    logging.info("measuring idle power consumption")
-    
     global ml
 
     probeObjs = {}
@@ -261,8 +265,14 @@ def main():
             ml = VirtualModeller(options.interval, stint['bitrate_mbps'], stint['packetsize_bytes'])
         else:
             ml = Modeller(options)
+
+        th_gp = stint['packetsize_bytes'] * PROFILES[options.profile]['MAX_TPS_UDP'] * 8
+        
+        logging.info("maximum transaction speed for this medium (%s) is %d TPS" % (options.profile, PROFILES[options.profile]['MAX_TPS_UDP']) )
+        logging.info("maximum theoretical goodput is %s" % bps_to_human(th_gp) )
             
         ml.start()
+        time.sleep(2)
         src.execute_stint(stint)
         ml.shutdown()
 
@@ -273,7 +283,7 @@ def main():
         median = numpy.median(ml.readings)
         mean = numpy.mean(ml.readings)
         ci = 1.96 * (numpy.std(ml.readings) / numpy.sqrt(len(ml.readings)) )
-
+        
         client_count = stint['results'][stint['src']]['client_count']
         server_count = stint['results'][stint['dst']]['server_count']
         
@@ -286,6 +296,15 @@ def main():
         losses = float( client_count - server_count ) / client_count
         
         stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp }
+
+        logging.info("median power consumption: %f, confidence: %f" % (median, ci))
+
+        if th_gp > gp:
+            logging.info("transmission rate was feasible, actual packet error rate %f" % losses)
+        else:
+            pk_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
+            th_losses = float(pk_rate - PROFILES[options.profile]['MAX_TPS_UDP']) / pk_rate
+            logging.info("transmission rate was NOT feasible, expected packet error rate %f, actual packet error rate %f" % (th_losses, losses) ) 
         
         with open(expanded_path, 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))

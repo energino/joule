@@ -41,7 +41,7 @@ import logging
 import threading
 import subprocess
 
-CLICK_SENDER = "src :: RatedSource(ACTIVE false) -> counter_client :: Counter() -> tr_client :: TimeRange() -> Socket(UDP, %s, %u); ControlSocket(TCP, %u);"
+CLICK_SENDER = "src :: RatedSource(ACTIVE false) -> counter_client :: Counter() -> tr_client :: TimeRange() -> Queue() -> Socket(UDP, %s, %u);ControlSocket(TCP, %u);"
 CLICK_RECEIVER = "Socket(UDP, 0.0.0.0, %u) -> counter_server :: Counter()-> tr_server :: TimeRange() -> Discard(); ControlSocket(TCP, %u);" 
 DEFAULT_RECEIVER_IP = "172.16.0.172"
 DEFAULT_RECEIVER_PORT = 9998

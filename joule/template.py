@@ -76,7 +76,7 @@ def main():
         for size in options.sizes.split(" "):
             
             stint = {
-                "bitrate_mbps": int(rate),
+                "bitrate_mbps": float(rate),
                 "dst": "A",
                 "duration_s": int(options.duration),
                 "packetsize_bytes": int(size),
@@ -86,7 +86,7 @@ def main():
             joule['stints'].append(stint)
 
             stint = {
-                "bitrate_mbps": int(rate),
+                "bitrate_mbps": float(rate),
                 "dst": "B",
                 "duration_s": int(options.duration),
                 "packetsize_bytes": int(size),

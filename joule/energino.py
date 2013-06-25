@@ -67,7 +67,7 @@ MODELS = { "Energino" : { 1 : unpack_energino_v1 } }
 
 class PyEnergino(object):
 
-    def __init__(self, port=DEFAULT_PORT, bps=DEFAULT_PORT_SPEED, interval = DEFAULT_INTERVAL):
+    def __init__(self, port=DEFAULT_PORT, bps=DEFAULT_PORT_SPEED, interval=DEFAULT_INTERVAL):
         self.interval = interval
         self.ser = serial.Serial(baudrate=bps, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS)
         devs = glob.glob(port + "*")
@@ -77,6 +77,7 @@ class PyEnergino(object):
             self.ser.open()
             time.sleep(2)
             self.configure()
+            self.send_cmds([ "#P%u" % self.interval ])
             logging.debug("attaching to port %s!" % dev)
             return
         raise Exception, "unable to configure serial port"

@@ -41,7 +41,7 @@ import datetime
 
 DEFAULT_PORT = '/dev/ttyACM0'
 DEFAULT_PORT_SPEED = 115200
-DEFAULT_INTERVAL = 2000
+DEFAULT_INTERVAL = 500
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 
 def unpack_energino_v1(line):

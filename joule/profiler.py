@@ -48,89 +48,84 @@ import numpy
 from click import read_handler, write_handler
 from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
 
-PROFILES = { '11b' : { 'MAX_TPS_TCP' : 479, 'MAX_TPS_UDP' : 635 }, 
-             '11a' : { 'MAX_TPS_TCP' : 2336, 'MAX_TPS_UDP' : 3105 }, 
-             '11g' : { 'MAX_TPS_TCP' : 2336, 'MAX_TPS_UDP' : 3105 } }
+def bps_to_human(bps):
+    if bps >= 1000000:
+        return "%f Mbps" % (float(bps) / 1000000)
+    elif bps >= 100000:
+        return "%f Kbps" % (float(bps) / 1000)
+    else:
+        return "%u bps" % bps
+    
+def tx_usecs_80211ga_udp(payload, mtu = 1468):
+    if payload > mtu:
+        return tx_usecs_80211ga_udp(payload / 2, mtu) + tx_usecs_80211ga_udp(payload - (payload / 2), mtu)
+    else:
+        # assume that transmission always succeed  
+        avg_cw = 15 * 9
+        # payload + UDP header (12) + IP Header (20) + MAC Header (28) + LLC/SNAP Header (8)
+        payload = payload + 12 + 20 + 28 + 8;
+        # return DIFS + CW + payload + SIFS + ACK
+        return int(34 + avg_cw + math.ceil(float(payload * 8) / 216) * 4 + 16 + 24 ) 
+
+PROFILES = { '11a' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp }, 
+             '11g' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp } }
 
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 DEFAULT_JOULE = '~/joule.json'
 DEFAULT_PROFILE = '11g'
 
-class Modeller(threading.Thread):
-    
+class BaseModeller(threading.Thread):
+
     def __init__(self, options):
 
-        super(Modeller, self).__init__()
+        super(BaseModeller, self).__init__()
+        logging.info("starting modeler")
         self.stop_event = threading.Event()
         self.daemon = True
         self.interval = int(options.interval)
         self.device = options.device
         self.bps = options.bps
         self.readings = []
-        logging.info("starting energino")
-        self.energino = PyEnergino(self.device, self.bps, self.interval)
 
+    def reset_readings(self):
+        self.readings = []
+        
+    def get_readings(self):
+        return list(self.readings)
+
+    def shutdown(self):
+        logging.info("stopping modeler")
+        self.stop_event.set()
+    
+class Modeller(BaseModeller):
+    
     def run(self):
+        energino = PyEnergino(self.device, self.bps, self.interval)
         while not self.stop_event.isSet():
             try:
-                readings = self.energino.fetch()
+                readings = energino.fetch()
                 self.readings.append(readings['power'])
             except:
                 pass
 
-    def shutdown(self):
-        logging.info("stopping energino")
-        self.energino.ser.close()
-        self.stop_event.set()
-        time.sleep(2)
-
-class VirtualModeller(threading.Thread):
+class VirtualModeller(BaseModeller):
     
-    def __init__(self, interval, bitrate, packetsize):
-        super(VirtualModeller, self).__init__()
-        self.stop = threading.Event()
-        self.daemon = True
-        self.bitrate = bitrate
-        self.packetsize = packetsize
-        self.interval = interval
-        self.readings = []
-
-    def compute_virtual_power(self, bitrate, packetsize):
-        from random import randint
-        r = float(randint(1,1000) - 500) / 20000
-        if bitrate > 20:
-            base = 4.6
-        else:
-            base = bitrate * 0.04 + 3.84
-        if packetsize <= 60:
-            corr = 5.595 - 3.84
-        else:
-            corr = -0.2287 * math.log(packetsize) + 5.595 - 3.84
-        return base + corr + r
-        
     def run(self):
-        logging.info("starting virtual energino")
+        self.bitrate = 0
+        self.packetsize = 0
         while True:
-            self.readings.append(self.compute_virtual_power(self.bitrate, self.packetsize))
+            from random import randint
+            r = float(randint(1,1000) - 500) / 20000
+            if self.bitrate > 20:
+                base = 4.6
+            else:
+                base = self.bitrate * 0.04 + 3.84
+            if self.packetsize <= 60:
+                corr = 5.595 - 3.84
+            else:
+                corr = -0.2287 * math.log(self.packetsize) + 5.595 - 3.84
+            self.readings.append(base + corr + r)
             time.sleep(float(self.interval) / 1000)
-
-    def shutdown(self):
-        logging.info("stopping virtual energino")
-        self.stop.set()
-
-def bps_to_human(bps):
-    if bps >= 1000000:
-        return "%u Mbps" % (float(bps) / 1000000)
-    elif bps >= 100000:
-        return "%u Kbps" % (float(bps) / 1000)
-    else:
-        return "%u bps" % bps
-
-def sigint_handler(signal, frame):
-    logging.info("Received SIGINT, terminating...")
-    global ml
-    ml.shutdown()
-    sys.exit(0)
 
 class Probe(object):
     
@@ -175,24 +170,27 @@ class Probe(object):
         
         self._packet_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
         
-        self._packets_nb = stint['duration_s'] * self._packet_rate
         self._packetsize_bytes = stint['packetsize_bytes'] 
         self._duration = stint['duration_s'] 
 
         logging.info("payload length is %u bytes" % self._packetsize_bytes )
         logging.info("transmission rate set to %u pkt/s" % self._packet_rate )
-        logging.info("trasmitting a total of %u packets" % self._packets_nb )
         logging.info("trasmitting time is %us" % self._duration )
         logging.info("target bitrate is %s" % bps_to_human(stint['bitrate_mbps'] * 1000000) )         
 
         self._set_length(self._packetsize_bytes)
         self._set_rate(self._packet_rate)
-        self._set_limit(self._packets_nb)
 
-        self._start()
-        logging.info("running stint...")
+        global ml
+
+        self.start()
+        
+        ml.reset_readings()
         time.sleep(self._duration)
-        self._stop()
+        readings = ml.get_readings()
+
+        self.stop()
+        return readings
 
     def _set_length(self, length):
         self._dh(write_handler(self.ip, self.sender_control, 'src.length %s' % length))
@@ -200,16 +198,19 @@ class Probe(object):
     def _set_rate(self, rate):
         self._dh(write_handler(self.ip, self.sender_control, 'src.rate %s' % rate))
 
-    def _set_limit(self, limit):
-        self._dh(write_handler(self.ip, self.sender_control, 'src.limit %s' % limit))
-
-    def _start(self):
+    def start(self):
         logging.info("starting probe (%s)" % self.ip)
         self._dh(write_handler(self.ip, self.sender_control, 'src.active true'))
 
-    def _stop(self):
+    def stop(self):
         logging.info("stopping probe (%s)" % self.ip)
         self._dh(write_handler(self.ip, self.sender_control, 'src.active false'))
+
+def sigint_handler(signal, frame):
+    logging.info("Received SIGINT, terminating...")
+    global ml
+    ml.shutdown()
+    sys.exit(0)
 
 def main():
 
@@ -219,6 +220,8 @@ def main():
     p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
     p.add_option('--profile', '-p', dest="profile", default=DEFAULT_PROFILE)
+    p.add_option('--rate', '-r', dest="rate")
+    p.add_option('--size', '-s', dest="size")
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--virtual', '-e', action="store_true", dest="virtual", default=False)    
     p.add_option('--log', '-l', dest="log")
@@ -237,9 +240,17 @@ def main():
     signal.signal(signal.SIGINT, sigint_handler)
     signal.signal(signal.SIGTERM, sigint_handler)
 
-    logging.info("starting eJOULE profiler")
+    logging.info("starting Joule Profiler")
 
     global ml
+
+    if options.virtual:
+        ml = VirtualModeller(options)
+    else:
+        ml = Modeller(options)
+
+    # starting modeller
+    ml.start()
 
     probeObjs = {}
 
@@ -249,6 +260,12 @@ def main():
     for i in range(0, len(data['stints'])):
 
         stint = data['stints'][i]
+        
+        if options.rate != None and float(options.rate) != stint['bitrate_mbps']:
+            continue
+            
+        if options.size != None and int(options.size) != stint['packetsize_bytes']:
+            continue
 
         src = probeObjs[stint['src']]
         dst = probeObjs[stint['dst']]
@@ -257,33 +274,34 @@ def main():
         logging.info('-----------------------------------------------------')
         logging.info("running profile %u/%u, %s -> %s:%u" % (i+1, len(data['stints']), src.ip, dst.ip, dst.receiver_port))
 
+        tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']
+        tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])
+        
+        logging.info("maximum transaction speed for this medium (%s) is %d TPS" % (options.profile, tps) )
+        logging.info("maximum theoretical goodput is %s" % bps_to_human(stint['packetsize_bytes'] * 8 * tps) )
+
         # reset probes
         src.reset()
         dst.reset()
 
         if options.virtual:
-            ml = VirtualModeller(options.interval, stint['bitrate_mbps'], stint['packetsize_bytes'])
-        else:
-            ml = Modeller(options)
-
-        th_gp = stint['packetsize_bytes'] * PROFILES[options.profile]['MAX_TPS_UDP'] * 8
+            ml.bitrate = stint['bitrate_mbps']
+            ml.packetsize = stint['packetsize_bytes']
         
-        logging.info("maximum transaction speed for this medium (%s) is %d TPS" % (options.profile, PROFILES[options.profile]['MAX_TPS_UDP']) )
-        logging.info("maximum theoretical goodput is %s" % bps_to_human(th_gp) )
-            
-        ml.start()
-        time.sleep(2)
-        src.execute_stint(stint)
-        ml.shutdown()
+        # run stint
+        readings = src.execute_stint(stint)
 
+        # compute statistics
         stint['results'] = {}
         stint['results'][stint['src']] = src.status()
         stint['results'][stint['dst']] = dst.status()
         
-        median = numpy.median(ml.readings)
-        mean = numpy.mean(ml.readings)
-        ci = 1.96 * (numpy.std(ml.readings) / numpy.sqrt(len(ml.readings)) )
+        median = numpy.median(readings)
+        mean = numpy.mean(readings)
+        ci = 1.96 * (numpy.std(readings) / numpy.sqrt(len(readings)) )
         
+        logging.info("median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
+
         client_count = stint['results'][stint['src']]['client_count']
         server_count = stint['results'][stint['dst']]['server_count']
         
@@ -295,19 +313,21 @@ def main():
         
         losses = float( client_count - server_count ) / client_count
         
-        stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp }
+        stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp, 'readings' : readings }
 
-        logging.info("median power consumption: %f, confidence: %f" % (median, ci))
+        pk_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
 
-        if th_gp > gp:
+        if tps > pk_rate:
             logging.info("transmission rate was feasible, actual packet error rate %f" % losses)
         else:
-            pk_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
-            th_losses = float(pk_rate - PROFILES[options.profile]['MAX_TPS_UDP']) / pk_rate
+            th_losses = float(pk_rate - tps) / pk_rate
             logging.info("transmission rate was NOT feasible, expected packet error rate %f, actual packet error rate %f" % (th_losses, losses) ) 
         
         with open(expanded_path, 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+
+    # stopping modeller
+    ml.shutdown()
         
 if __name__ == "__main__":
     main()

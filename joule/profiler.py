@@ -98,13 +98,15 @@ class BaseModeller(threading.Thread):
         self.stop_event.set()
     
 class Modeller(BaseModeller):
-    
+
+    def __init__(self, options):
+        super(Modeller, self).__init__(options)
+        self.energino = PyEnergino(self.device, self.bps, self.interval)
+            
     def run(self):
-        energino = PyEnergino(self.device, self.bps, self.interval)
         while not self.stop_event.isSet():
             try:
-                readings = energino.fetch()
-                self.readings.append(readings['power'])
+                self.readings.append(self.energino.fetch('power'))
             except:
                 pass
 
@@ -222,6 +224,7 @@ def main():
     p.add_option('--profile', '-p', dest="profile", default=DEFAULT_PROFILE)
     p.add_option('--rate', '-r', dest="rate")
     p.add_option('--size', '-s', dest="size")
+    p.add_option('--skip', '-k', action="store_true", dest="skip", default=False)    
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--virtual', '-e', action="store_true", dest="virtual", default=False)    
     p.add_option('--log', '-l', dest="log")
@@ -274,6 +277,10 @@ def main():
         logging.info('-----------------------------------------------------')
         logging.info("running profile %u/%u, %s -> %s:%u" % (i+1, len(data['stints']), src.ip, dst.ip, dst.receiver_port))
 
+        if 'results' in stint and 'stats' in stint and options.skip:
+            logging.info("skipping stint")
+            continue
+
         tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']
         tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])
         
@@ -325,6 +332,9 @@ def main():
         
         with open(expanded_path, 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+
+        # sleep in order to let the network settle down
+        time.sleep(2)
 
     # stopping modeller
     ml.shutdown()

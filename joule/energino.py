@@ -107,13 +107,15 @@ class PyEnergino(object):
         self.ser.flushOutput()
         self.ser.write(value)
 
-    def fetch(self):
+    def fetch(self, field = None):
         readings = self.unpack(self.ser.readline())
         readings['port'] = self.ser.port
         readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         delta = math.fabs(self.interval - readings['window'])
         if delta / self.interval > 0.1:
             logging.debug("polling drift is higher than 10%%, target is %u actual is %u" % (self.interval, readings['window']))
+        if field != None:
+            return readings[field]
         return readings
                 
 def main():

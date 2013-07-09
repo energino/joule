@@ -181,18 +181,9 @@ class Probe(object):
         logging.info("trasmitting time is %us" % self._duration )
         logging.info("target bitrate is %s" % bps_to_human(stint['bitrate_mbps'] * 1000000) )         
 
-        self._dh(write_handler(self.ip, self.sender_control, 'src.length %s' % self._packetsize_bytes))
-        self._dh(write_handler(self.ip, self.sender_control, 'src.rate %s' % self._packet_rate))
-        self._dh(write_handler(self.ip, self.sender_control, 'src.limit %s' % self._limit))
-
-        if int(read_handler(self.ip, self.sender_control, 'src.length')[2]) != self._packetsize_bytes:
-            logging.error("Unable to set packet size!")
-
-        if int(read_handler(self.ip, self.sender_control, 'src.rate')[2]) != self._packet_rate:
-            logging.error("Unable to set packet rate!")
-
-        if int(read_handler(self.ip, self.sender_control, 'src.limit')[2]) != self._limit:
-            logging.error("Unable to set limit!")
+        self._dh(write_handler(self.ip, self.sender_control, 'src.length %u' % self._packetsize_bytes))
+        self._dh(write_handler(self.ip, self.sender_control, 'src.rate %u' % self._packet_rate))
+        self._dh(write_handler(self.ip, self.sender_control, 'src.limit %u' % self._limit))
 
         global ml
 

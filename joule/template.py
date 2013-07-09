@@ -34,7 +34,7 @@ possible permutations between the rates list and the packets sizes list. It
 is possible to define also the duration of each stint. By default the 
 descriptor is ~/joule.json. The default behavior is the following:
 
-profiler -a 127.0.0.1 -b 127.0.01 -r "1 2 4 8" -s "64 1000 1460" -d 5
+template -a 127.0.0.1 -b 127.0.0.1 -r "1 2 4 8" -s "64 1000 1460" -d 5
 
 """
 

@@ -171,42 +171,33 @@ class Probe(object):
     def execute_stint(self, stint):
         
         self._packet_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
-        
         self._packetsize_bytes = stint['packetsize_bytes'] 
-        self._duration = stint['duration_s'] 
+        self._duration = stint['duration_s']
+        self._limit = self._packet_rate * self._duration 
 
+        logging.info("will send a total of %u packets" % self._limit )
         logging.info("payload length is %u bytes" % self._packetsize_bytes )
         logging.info("transmission rate set to %u pkt/s" % self._packet_rate )
         logging.info("trasmitting time is %us" % self._duration )
         logging.info("target bitrate is %s" % bps_to_human(stint['bitrate_mbps'] * 1000000) )         
 
-        self._set_length(self._packetsize_bytes)
-        self._set_rate(self._packet_rate)
+        self._dh(write_handler(self.ip, self.sender_control, 'src.length %s' % self._packet_rate))
+        self._dh(write_handler(self.ip, self.sender_control, 'src.rate %s' % self._packetsize_bytes))
+        self._dh(write_handler(self.ip, self.sender_control, 'src.limit %s' % self._limit))
 
         global ml
 
-        self.start()
+        logging.info("starting probe (%s)" % self.ip)
+        self._dh(write_handler(self.ip, self.sender_control, 'src.active true'))
         
         ml.reset_readings()
         time.sleep(self._duration)
         readings = ml.get_readings()
 
-        self.stop()
-        return readings
-
-    def _set_length(self, length):
-        self._dh(write_handler(self.ip, self.sender_control, 'src.length %s' % length))
-
-    def _set_rate(self, rate):
-        self._dh(write_handler(self.ip, self.sender_control, 'src.rate %s' % rate))
-
-    def start(self):
-        logging.info("starting probe (%s)" % self.ip)
-        self._dh(write_handler(self.ip, self.sender_control, 'src.active true'))
-
-    def stop(self):
         logging.info("stopping probe (%s)" % self.ip)
         self._dh(write_handler(self.ip, self.sender_control, 'src.active false'))
+
+        return readings
 
 def sigint_handler(signal, frame):
     logging.info("Received SIGINT, terminating...")
@@ -303,6 +294,9 @@ def main():
         stint['results'][stint['src']] = src.status()
         stint['results'][stint['dst']] = dst.status()
         
+        logging.info("client sent %u packets in %f s" % (stint['results'][stint['src']]['client_count'], stint['results'][stint['src']]['client_interval']) )
+        logging.info("server received %u packets in %f s" % (stint['results'][stint['dst']]['server_count'], stint['results'][stint['dst']]['server_interval']) )
+
         median = numpy.median(readings)
         mean = numpy.mean(readings)
         ci = 1.96 * (numpy.std(readings) / numpy.sqrt(len(readings)) )

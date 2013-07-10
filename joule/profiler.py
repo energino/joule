@@ -318,7 +318,7 @@ def main():
         
         logging.info("actual throughput %s" % bps_to_human(tp))
         logging.info("actual goodput %s" % bps_to_human(gp))
-        logging.info("packet error rate %f" % losses)
+        logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
 
         stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp, 'readings' : readings }
 

@@ -168,12 +168,15 @@ class Probe(object):
         status['server_interval'] = float(self._dh(read_handler(self.ip, self.receiver_control, 'tr_server.interval'))[2])
         return status
 
-    def execute_stint(self, stint):
+    def execute_stint(self, stint, tps):
         
         self._packet_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
         self._packetsize_bytes = stint['packetsize_bytes'] 
         self._duration = stint['duration_s']
         self._limit = self._packet_rate * self._duration 
+
+        if int(tps * 1.1) < self._packet_rate:
+            self._packet_rate = int(tps * 1.1)
 
         logging.info("will send a total of %u packets" % self._limit )
         logging.info("payload length is %u bytes" % self._packetsize_bytes )
@@ -264,7 +267,7 @@ def main():
         src = probeObjs[stint['src']]
         dst = probeObjs[stint['dst']]
 
-        # run stint
+        # process stint
         logging.info('-----------------------------------------------------')
         logging.info("running profile %u/%u, %s -> %s:%u" % (i+1, len(data['stints']), src.ip, dst.ip, dst.receiver_port))
 
@@ -287,43 +290,38 @@ def main():
             ml.packetsize = stint['packetsize_bytes']
         
         # run stint
-        readings = src.execute_stint(stint)
+        readings = src.execute_stint(stint, tps)
 
         # compute statistics
-        stint['results'] = {}
-        stint['results'][stint['src']] = src.status()
-        stint['results'][stint['dst']] = dst.status()
         
-        logging.info("client sent %u packets in %f s" % (stint['results'][stint['src']]['client_count'], stint['results'][stint['src']]['client_interval']) )
-        logging.info("server received %u packets in %f s" % (stint['results'][stint['dst']]['server_count'], stint['results'][stint['dst']]['server_interval']) )
-
         median = numpy.median(readings)
         mean = numpy.mean(readings)
         ci = 1.96 * (numpy.std(readings) / numpy.sqrt(len(readings)) )
         
         logging.info("median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
 
-        client_count = stint['results'][stint['src']]['client_count']
-        server_count = stint['results'][stint['dst']]['server_count']
+        src_status = src.status()
+        dst_status = dst.status()
+
+        client_count = src_status['client_count']
+        server_count = dst_status['server_count']
+        client_interval = src_status['client_interval']
+        server_interval = dst_status['server_interval']
         
-        client_interval = stint['results'][stint['src']]['client_interval']
-        server_interval = stint['results'][stint['dst']]['server_interval']
-        
+        logging.info("client sent %u packets in %f s" % (client_count, client_interval))
+        logging.info("server received %u packets in %f s" % (server_count, server_interval))
+
         tp = float(client_count * stint['packetsize_bytes'] * 8) / client_interval
         gp = float(server_count * stint['packetsize_bytes'] * 8) / server_interval
         
         losses = float( client_count - server_count ) / client_count
         
+        logging.info("actual throughput %s" % bps_to_human(tp))
+        logging.info("actual goodput %s" % bps_to_human(gp))
+        logging.info("packet error rate %f" % losses)
+
         stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp, 'readings' : readings }
 
-        pk_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
-
-        if tps > pk_rate:
-            logging.info("transmission rate was feasible, actual packet error rate %f" % losses)
-        else:
-            th_losses = float(pk_rate - tps) / pk_rate
-            logging.info("transmission rate was NOT feasible, expected packet error rate %f, actual packet error rate %f" % (th_losses, losses) ) 
-        
         with open(expanded_path, 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 

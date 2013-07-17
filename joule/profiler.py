@@ -175,9 +175,6 @@ class Probe(object):
         self._duration = stint['duration_s']
         self._limit = self._packet_rate * self._duration 
 
-        if int(tps * 1.1) < self._packet_rate:
-            self._packet_rate = int(tps * 1.1)
-
         logging.info("will send a total of %u packets" % self._limit )
         logging.info("payload length is %u bytes" % self._packetsize_bytes )
         logging.info("transmission rate set to %u pkt/s" % self._packet_rate )
@@ -187,6 +184,7 @@ class Probe(object):
         self._dh(write_handler(self.ip, self.sender_control, 'src.length %u' % self._packetsize_bytes))
         self._dh(write_handler(self.ip, self.sender_control, 'src.rate %u' % self._packet_rate))
         self._dh(write_handler(self.ip, self.sender_control, 'src.limit %u' % self._limit))
+        self._dh(write_handler(self.ip, self.sender_control, 'sha.rate %u' % tps))
 
         global ml
 

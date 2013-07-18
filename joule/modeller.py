@@ -82,12 +82,12 @@ def main():
     
         conn = sqlite3.connect(':memory:')
         c = conn.cursor()
-        c.execute('''create table data (src, dst, bitrate_mbps, packetsize_bytes, losses, median, mean)''')
+        c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean)''')
         conn.commit()
     
         for stint in data['stints']:
-            row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
-            c.execute("""insert into data values (?,?,?,?,?,?,?)""", row)
+            row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
+            c.execute("""insert into data values (?,?,?,?,?,?,?,?)""", row)
             conn.commit()
     
         logging.info("generating models")

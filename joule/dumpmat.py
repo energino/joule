@@ -49,18 +49,22 @@ def main():
     p.add_option('--output', '-o', dest="output", default=DEFAULT_OUTPUT_PREFIX)
     options, _ = p.parse_args()
 
-    # dump joule descriptor
+    # load joule descriptor
     with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
 
+    # load models descriptor
+    with open(os.path.expanduser(options.models)) as data_file:    
+        models = json.load(data_file)
+
     conn = sqlite3.connect(':memory:')
     c = conn.cursor()
-    c.execute('''create table data (src, dst, bitrate_mbps, packetsize_bytes, losses, median, mean)''')
+    c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean)''')
     conn.commit()
 
     for stint in data['stints']:
-        row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
-        c.execute("""insert into data values (?,?,?,?,?,?,?)""", row)
+        row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
+        c.execute("""insert into data values (?,?,?,?,?,?,?,?)""", row)
         conn.commit()
 
     pairs =[]
@@ -68,44 +72,13 @@ def main():
     for row in c:
         pairs.append(row)
 
-    rates =[]
-    c.execute("select bitrate_mbps from data group by bitrate_mbps")
-    for row in c:
-        rates.append(row)
-            
-    sizes =[]
-    c.execute("select packetsize_bytes from data group by packetsize_bytes")
-    for row in c:
-        sizes.append(row)
-
     for pair in pairs:
-
-        datum = []
-        
-        c.execute("select bitrate_mbps, packetsize_bytes, losses, median, mean from data where src = \"%s\" and dst = \"%s\"" % tuple(pair))
-        for row in c:
-            datum.append(row)
-
-        with open(os.path.expanduser(options.models)) as data_file:    
-            models = json.load(data_file)
-
-        model_rates = []
-        model_sizes = []
-
-        for model in models.values():
-    
-            if model['src'] == pair[0] and model['dst'] == pair[1]:
-
-                if model['select'] == 'bitrate_mbps':
-                    for group in model['groups']:
-                        model_sizes.append([ float(group) ] + model['groups'][group]['params'])
-                    
-                if model['select'] == 'packetsize_bytes':
-                    for group in model['groups']:
-                        model_rates.append([ float(group) ] + model['groups'][group]['params'])
-
+        stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
+        output = {}
+        for models_pair in [ model for model in models.values() if model['src'] == pair[0] and model['dst'] == pair[1] ]:
+            output[str(models_pair['select'])] = [ [ float(group) ] + models_pair['groups'][group]['params'] for group in models_pair['groups'] ]
         filename = os.path.expanduser(options.output + '_%s_%s.mat' % tuple(pair))
-        scipy.io.savemat(filename, dict(RATES=rates, SIZES=sizes, DATA=np.array(datum), MODEL_SIZES=np.array(model_sizes), MODEL_RATES=np.array(model_rates)), oned_as='row')
+        scipy.io.savemat(filename, { 'DATA' : np.array(stints), 'MODELS' : output }, oned_as = 'column')
 
 if __name__ == "__main__":
     main()

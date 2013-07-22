@@ -318,7 +318,7 @@ def main():
         logging.info("actual goodput %s" % bps_to_human(gp))
         logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
 
-        stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp, 'readings' : readings }
+        stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp }
 
         with open(expanded_path, 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))

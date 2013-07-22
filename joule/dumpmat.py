@@ -59,12 +59,12 @@ def main():
 
     conn = sqlite3.connect(':memory:')
     c = conn.cursor()
-    c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean)''')
+    c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci)''')
     conn.commit()
 
     for stint in data['stints']:
-        row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
-        c.execute("""insert into data values (?,?,?,?,?,?,?,?)""", row)
+        row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean'], stint['stats']['ci']]
+        c.execute("""insert into data values (?,?,?,?,?,?,?,?,?)""", row)
         conn.commit()
 
     pairs =[]
@@ -73,7 +73,7 @@ def main():
         pairs.append(row)
 
     for pair in pairs:
-        stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
+        stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
         output = {}
         for models_pair in [ model for model in models.values() if model['src'] == pair[0] and model['dst'] == pair[1] ]:
             output[str(models_pair['select'])] = [ [ float(group) ] + models_pair['groups'][group]['params'] for group in models_pair['groups'] ]

@@ -37,25 +37,19 @@ import sqlite3
 import numpy as np
 import scipy.io
 
-DEFAULT_JOULE = '~/joule.json'
-DEFAULT_MODELS = '~/models.json'
-DEFAULT_OUTPUT_PREFIX = '~/joule'
+DEFAULT_JOULE = './joule.json'
+DEFAULT_OUTPUT_DIR = './'
 
 def main():
 
     p = optparse.OptionParser()
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
-    p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
-    p.add_option('--output', '-o', dest="output", default=DEFAULT_OUTPUT_PREFIX)
+    p.add_option('--output', '-o', dest="output", default=DEFAULT_OUTPUT_DIR)
     options, _ = p.parse_args()
 
     # load joule descriptor
     with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
-
-    # load models descriptor
-    with open(os.path.expanduser(options.models)) as data_file:    
-        models = json.load(data_file)
 
     conn = sqlite3.connect(':memory:')
     c = conn.cursor()
@@ -74,11 +68,9 @@ def main():
 
     for pair in pairs:
         stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
-        output = {}
-        for models_pair in [ model for model in models.values() if model['src'] == pair[0] and model['dst'] == pair[1] ]:
-            output[str(models_pair['select'])] = [ [ float(group) ] + models_pair['groups'][group]['params'] for group in models_pair['groups'] ]
-        filename = os.path.expanduser(options.output + '_%s_%s.mat' % tuple(pair))
-        scipy.io.savemat(filename, { 'DATA' : np.array(stints), 'MODELS' : output }, oned_as = 'column')
+        basename = os.path.splitext(os.path.basename(os.path.expanduser(options.joule)))[0]
+        filename = os.path.expanduser(options.output + '/' + basename + '_%s_%s.mat' % tuple(pair))
+        scipy.io.savemat(filename, { 'DATA' : np.array(stints) }, oned_as = 'column')
 
 if __name__ == "__main__":
     main()

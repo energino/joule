@@ -37,7 +37,6 @@ import json
 import optparse
 import logging 
 import sqlite3
-import math
 import numpy as np
 from scipy.optimize import curve_fit
 
@@ -45,73 +44,107 @@ LOG_FORMAT = '%(asctime)-15s %(message)s'
 DEFAULT_JOULE = '~/joule.json'
 DEFAULT_MODELS = '~/models.json'
 
+LOOKUP = { ('A', 'B') : 'TX',
+           ('B', 'A') : 'RX' }
+
 def main():
 
     p = optparse.OptionParser()
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
-    p.add_option('--delete', '-d', action="store_true", dest="delete", default=False)    
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
     with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
 
-    with open(os.path.expanduser(options.models)) as data_file:    
-        models = json.load(data_file)
-
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
     else:
         logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
 
-    if options.delete:
+    logging.info("starting eJOULE modeller")
+    logging.info("importing data into db")
 
-        logging.info("starting eJOULE modeller")
-        logging.info("deleting models")
+    conn = sqlite3.connect(':memory:')
+    c = conn.cursor()
+    c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean)''')
+    conn.commit()
 
-        for model in models.values():
-            if 'groups' in model:
-                del model['groups']
-
-    else:
-
-        logging.info("starting eJOULE modeller")
-        logging.info("importing data into db")
-    
-        conn = sqlite3.connect(':memory:')
-        c = conn.cursor()
-        c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean)''')
+    for stint in data['stints']:
+        row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
+        c.execute("""insert into data values (?,?,?,?,?,?,?,?)""", row)
         conn.commit()
-    
-        for stint in data['stints']:
-            row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
-            c.execute("""insert into data values (?,?,?,?,?,?,?,?)""", row)
-            conn.commit()
-    
-        logging.info("generating models")
-        
-        for model in models.values():
+
+    logging.info("generating models")
+
+    pairs = conn.cursor().execute("select src, dst from data group by src, dst")
+
+    models = {}
+
+    gamma = data['idle']['median']
+
+    for pair in pairs:
+
+        if pair in LOOKUP:
+            model = LOOKUP[pair]
+        else: 
+            model = '%s -> %s' % pair
             
-            groups = []
-            c.execute("select %s from data group by %s" % (model['group_by'], model['group_by']))
-            for row in c:
-                groups.append(float(row[0]))
-                
-            model['groups'] = {}
-            for group in groups:
-                model['groups'][group] = { 'points' : [], 'params' : None }
-                c.execute("select %s, median from data where src = \"%s\" and dst = \"%s\" and %s = %s" % (model['select'], model['src'], model['dst'], model['group_by'], group))
-                for row in c:
-                    model['groups'][group]['points'].append(row)
-                A = np.array(model['groups'][group]['points'])
-                popt, _ = curve_fit(eval(model['func']), A[:,0], A[:,1])
-                model['groups'][group]['params'] = list(popt)
-                del model['groups'][group]['points']
+        print model 
+
+        models[model] = { 'src' : pair[0], 'dst' : pair[1], 'gamma' : gamma }
+
+        sql = """SELECT MAX(goodput_mbps), packetsize_bytes 
+                 FROM data where src = \"%s\" and dst = \"%s\" 
+                 GROUP BY packetsize_bytes""" % (pair)
+
+        xmaxs = conn.cursor().execute(sql)
+        
+        slopes = []
+        models[model]['x_max'] = []
+        
+        for xmax in xmaxs:
+            
+            models[model]['x_max'].append(xmax[0])
+            
+            sql = """SELECT (MAX(median) - MIN(median)) / (MAX(bitrate_mbps) - MIN(bitrate_mbps)), packetsize_bytes 
+                     FROM data 
+                     WHERE src = \"%s\" and dst = \"%s\" and bitrate_mbps < %f and packetsize_bytes = %f 
+                     ORDER BY bitrate_mbps ASC""" % (pair+xmax)
+
+            slopes.append(conn.cursor().execute(sql).fetchone())
+            
+        A = np.array(slopes)
+        
+        popt, _ = curve_fit(lambda x, a0, a1: a0 * (1 + a1 / x), A[:,1], A[:,0])
+
+        models[model]['packet_sizes'] = [ int(x) for x in A[:,1] ]
+
+        models[model]['alpha0'] = popt[0]
+        models[model]['alpha1'] = popt[1]
+
+        sql = """SELECT AVG(median) - %f, packetsize_bytes 
+                 FROM data where src = \"%s\" and dst = \"%s\" 
+                 GROUP BY packetsize_bytes 
+                 ORDER BY packetsize_bytes ASC""" % ( tuple([models[model]['gamma']]) + pair )
+
+        beta = conn.cursor().execute(sql)
+
+        models[model]['beta'] = [ x[0] for x in beta ]
+
+        print "alpha0: \t %f" % models[model]['alpha0']
+        print "alpha1: \t %f" % models[model]['alpha1']
+        print "gamma: \t\t %f" % gamma
+        print "packet sizes: \t %s" % ' \t'.join([ str(int(x)) for x in A[:,1] ])
+        print "beta(d): \t %s" % ' \t'.join( [ "%.3f" % x for x in models[model]['beta'] ])
+        print "x_max(d): \t %s" % ' \t'.join( [ "%.3f" % x for x in models[model]['x_max'] ])
 
     with open(os.path.expanduser(options.models), 'w') as data_file:    
-        json.dump(models, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+        json.dump(models, data_file, indent=4, separators=(',', ': '))
+
+    logging.info("models saved to %s" % os.path.expanduser(options.models))
 
 if __name__ == "__main__":
     main()

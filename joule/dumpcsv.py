@@ -36,7 +36,7 @@ import os
 import json
 import optparse
 
-DEFAULT_JOULE = '~/joule.json'
+DEFAULT_JOULE = './joule.json'
 
 def main():
 

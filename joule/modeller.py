@@ -92,9 +92,7 @@ def main():
         else: 
             model = '%s -> %s' % pair
             
-        print model 
-
-        models[model] = { 'src' : pair[0], 'dst' : pair[1], 'gamma' : gamma }
+        models[model] = { 'gamma' : gamma }
 
         sql = """SELECT MAX(goodput_mbps), packetsize_bytes 
                  FROM data where src = \"%s\" and dst = \"%s\" 

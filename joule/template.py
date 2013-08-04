@@ -43,13 +43,14 @@ import json
 import optparse
 import logging 
 
-LOG_FORMAT = '%(asctime)-15s %(message)s'
-DEFAULT_JOULE = '~/joule.json'
 DEFAULT_PROBE_A = "127.0.0.1"
 DEFAULT_PROBE_B = "127.0.0.1"
 DEFAULT_RATES = "1 2 4 8"
 DEFAULT_SIZES = "64 1000 1460"
 DEFAULT_DURATION = 5
+
+DEFAULT_JOULE = './joule.json'
+LOG_FORMAT = '%(asctime)-15s %(message)s'
 
 def main():
 

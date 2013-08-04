@@ -40,9 +40,9 @@ import sqlite3
 import numpy as np
 from scipy.optimize import curve_fit
 
+DEFAULT_JOULE = './joule.json'
+DEFAULT_MODELS = './models.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
-DEFAULT_JOULE = '~/joule.json'
-DEFAULT_MODELS = '~/models.json'
 
 LOOKUP = { ('A', 'B') : 'TX',
            ('B', 'A') : 'RX' }
@@ -81,9 +81,7 @@ def main():
 
     pairs = conn.cursor().execute("select src, dst from data group by src, dst")
 
-    models = {}
-
-    gamma = data['idle']['median']
+    models = { 'gamma' : data['idle']['median'] }
 
     for pair in pairs:
 
@@ -92,7 +90,7 @@ def main():
         else: 
             model = '%s -> %s' % pair
             
-        models[model] = { 'gamma' : gamma }
+        models[model] = {}
 
         sql = """SELECT MAX(goodput_mbps), packetsize_bytes 
                  FROM data where src = \"%s\" and dst = \"%s\" 
@@ -101,11 +99,11 @@ def main():
         xmaxs = conn.cursor().execute(sql)
         
         slopes = []
-        models[model]['x_max'] = []
+        models[model]['x_max'] = {}
         
         for xmax in xmaxs:
             
-            models[model]['x_max'].append(xmax[0])
+            models[model]['x_max'][xmax[1]] = xmax[0]
             
             sql = """SELECT (MAX(median) - MIN(median)) / (MAX(bitrate_mbps) - MIN(bitrate_mbps)), packetsize_bytes 
                      FROM data 
@@ -118,26 +116,17 @@ def main():
         
         popt, _ = curve_fit(lambda x, a0, a1: a0 * (1 + a1 / x), A[:,1], A[:,0])
 
-        models[model]['packet_sizes'] = [ int(x) for x in A[:,1] ]
-
         models[model]['alpha0'] = popt[0]
         models[model]['alpha1'] = popt[1]
 
         sql = """SELECT AVG(median) - %f, packetsize_bytes 
                  FROM data where src = \"%s\" and dst = \"%s\" 
                  GROUP BY packetsize_bytes 
-                 ORDER BY packetsize_bytes ASC""" % ( tuple([models[model]['gamma']]) + pair )
+                 ORDER BY packetsize_bytes ASC""" % ( tuple([models['gamma']]) + pair )
 
         beta = conn.cursor().execute(sql)
 
-        models[model]['beta'] = [ x[0] for x in beta ]
-
-        print "alpha0: \t %f" % models[model]['alpha0']
-        print "alpha1: \t %f" % models[model]['alpha1']
-        print "gamma: \t\t %f" % gamma
-        print "packet sizes: \t %s" % ' \t'.join([ str(int(x)) for x in A[:,1] ])
-        print "beta(d): \t %s" % ' \t'.join( [ "%.3f" % x for x in models[model]['beta'] ])
-        print "x_max(d): \t %s" % ' \t'.join( [ "%.3f" % x for x in models[model]['x_max'] ])
+        models[model]['beta'] = { x[1]:x[0] for x in beta }
 
     with open(os.path.expanduser(options.models), 'w') as data_file:    
         json.dump(models, data_file, indent=4, separators=(',', ': '))

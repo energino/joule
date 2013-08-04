@@ -48,6 +48,9 @@ import numpy
 from click import read_handler, write_handler
 from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
 
+DEFAULT_JOULE = './joule.json'
+LOG_FORMAT = '%(asctime)-15s %(message)s'
+
 def bps_to_human(bps):
     if bps >= 1000000:
         return "%f Mbps" % (float(bps) / 1000000)
@@ -70,8 +73,6 @@ def tx_usecs_80211ga_udp(payload, mtu = 1468):
 PROFILES = { '11a' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp }, 
              '11g' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp } }
 
-LOG_FORMAT = '%(asctime)-15s %(message)s'
-DEFAULT_JOULE = '~/joule.json'
 DEFAULT_PROFILE = '11g'
 
 class BaseModeller(threading.Thread):

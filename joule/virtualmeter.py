@@ -29,86 +29,151 @@
 The Joule Virtual Power Meter
 """
 
-import signal
-import uuid
 import sys
 import optparse
 import logging
+import numpy as np
 import time
+import json
+import os
 
-from energino import PyEnergino
-from xively_client import Dispatcher, DEFAULT_CONFIG, LOG_FORMAT, BACKOFF    
+from click import write_handler
+from energino import PyEnergino, DEFAULT_PORT, DEFAULT_INTERVAL, DEFAULT_PORT_SPEED
+
+DEFAULT_JOULE = './joule.json'
+DEFAULT_MODELS = './models.json'
+LOG_FORMAT = '%(asctime)-15s %(message)s'
+
+def compute_power(alpha0, alpha1, x_max, beta, gamma, x, d):
+    if x == 0.0:
+        return gamma
+    if x > x_max[str(d)]:
+        x = x_max[str(d)]
+    alpha_d = alpha0 * ( 1 + (alpha1 / d))
+    return alpha_d * x + beta[str(d)] + gamma
+
+class VirtualMeter(object):
     
-class VirtualMeter(Dispatcher):
+    def __init__(self, models):
         
-    def start(self):
+        self.models = models
         
-        # start dispatcher
-        self.dispatcher.add_stream("voltage", "derivedSI", "Volts", "V")
-        self.dispatcher.add_stream("current", "derivedSI", "Amperes", "A")
-        self.dispatcher.add_stream("power", "derivedSI", "Watts", "W")
-        self.dispatcher.add_stream("switch", "derivedSI", "Switch", "S")
-        self.dispatcher.start()
-        
-        # start pool loop
-        while True:
-            try:
-                # configure feed
-                self.discover()
-                # setup serial port
-                energino = PyEnergino(self.device, self.bps, self.interval)
-                # start updating
-                logging.info("begin polling")
-                while True:
-                    if self.stop.isSet():
-                        return
-                    try:
-                        readings = energino.fetch()
-                        logging.debug("appending new readings: %s [V] %s [A] %s [W] %u [Q]" % (readings['voltage'], readings['current'], readings['power'], len(self.dispatcher.outgoing)))
-                        self.dispatcher.enqueue(readings)
-                    except:
-                        logging.warning("sample lost")
-            except Exception:
-                logging.exception("exception, backing off for %u seconds" % BACKOFF)
-                time.sleep(BACKOFF)
-        # thread stopped
-        logging.info("thread %s stopped" % self.__class__.__name__) 
+        results = write_handler('127.0.0.1', 7777, "ac_rx.write_text_file /tmp/RX")
+        if results[0] != '200':
+            raise Exception, "unable to query click: %s/%s" % (results[0], results[2])
 
-def sigint_handler(signal, frame):
-    global vm
-    vm.shutdown()
-    sys.exit(0)
+        results = write_handler('127.0.0.1', 7777, "ac_tx.write_text_file /tmp/TX")
+        if results[0] != '200':
+            raise Exception, "unable to query click: %s/%s" % (results[0], results[2])
 
+        self.packet_sizes = {}
+        self.packet_sizes['RX'] = sorted([ int(x) for x in self.models['RX']['x_max'].keys() ], key=int)
+        self.packet_sizes['TX'] = sorted([ int(x) for x in self.models['TX']['x_max'].keys() ], key=int)
+
+        self.bins = {}
+        self.bins['RX'] = self.generate_bins('RX')
+        self.bins['TX'] = self.generate_bins('TX')
+        
+        self.last = time.time()
+        
+    def fetch(self):
+
+        rx_results = write_handler('127.0.0.1', 7777, "ac_rx.write_text_file /tmp/RX")
+        tx_results = write_handler('127.0.0.1', 7777, "ac_tx.write_text_file /tmp/TX")
+
+        if rx_results[0] != '200' or tx_results[0] != '200':
+            return { 'power' : 0.0 }
+
+        delta = time.time() - self.last
+        self.last = time.time()
+
+        bins = {}
+        bins['RX'] = self.generate_bins('RX')
+        bins['TX'] = self.generate_bins('TX')
+
+        power_rx = self.compute(bins['RX'], self.bins['RX'], 'RX', delta)
+        power_tx = self.compute(bins['TX'], self.bins['TX'], 'TX', delta)
+
+        self.bins['RX'] = bins['RX'][:]
+        self.bins['TX'] = bins['TX'][:]
+        
+        return { 'power' : power_rx + power_tx + self.models['gamma'] }
+  
+    def compute(self, bins_curr, bins_prev, model, delta):
+        
+        power = 0.0
+        
+        diff = [ x[0] for x in (bins_curr - bins_prev).tolist() ]
+        
+        alpha0 = self.models[model]['alpha0']
+        alpha1 = self.models[model]['alpha1']
+        x_max = self.models[model]['x_max']
+        beta = self.models[model]['beta']
+        gamma = self.models['gamma']
+
+        for i in range(0, len(diff)):
+        
+            if diff[i] == 0.0:
+                continue
+
+            x = ( ( self.packet_sizes[model][i] * diff[i] * 8 ) / delta ) / 1000000
+            d = self.packet_sizes[model][i]
+            
+            power = power + compute_power(alpha0, alpha1, x_max, beta, gamma, x, d) - gamma
+        
+        return power
+
+    def generate_bins(self, model):
+        A = np.genfromtxt('/tmp/%s' % model, dtype=int, comments="!")
+        bins = np.zeros(shape=(len(self.packet_sizes[model]),1))
+        for a in A:
+            for i in range(0, len(self.packet_sizes[model]) - 1):
+                if a[0] > self.packet_sizes[model][i] and a[0] <= self.packet_sizes[model][i + 1]:
+                    bins[i] = bins[i] + a[1]
+                    break
+        return bins
+                
 def main():
 
     p = optparse.OptionParser()
-    p.add_option('--uuid', '-u', dest="uuid", default=uuid.getnode())
-    p.add_option('--config', '-c', dest="config", default=DEFAULT_CONFIG)
+
+    p.add_option('--port', '-p', dest="port", default=DEFAULT_PORT)
+    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
+    p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
+    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
+    p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--log', '-l', dest="log")
-    p.add_option('--debug', '-d', action="store_true", dest="debug", default=False)       
+    
     options, _ = p.parse_args()
 
-    if options.debug:
+    with open(os.path.expanduser(options.models)) as data_file:    
+        models = json.load(data_file)
+
+    if options.verbose:
         lvl = logging.DEBUG
     else:
         lvl = logging.INFO
-
-    if options.log != None:
-        logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
-    else:
-        logging.basicConfig(level=lvl, format=LOG_FORMAT)
-
-    signal.signal(signal.SIGINT, sigint_handler)
-    signal.signal(signal.SIGTERM, sigint_handler)
-
-    global vm
     
-    vm = VirtualMeter(options.uuid, options.config)
-    vm.start()   
-         
-    signal.signal(signal.SIGINT, sigint_handler)
-    signal.signal(signal.SIGTERM, sigint_handler)
+    logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
+    
+    energino = PyEnergino(options.port, options.bps, int(options.interval))
+    vm = VirtualMeter(models)
+    
+    while True:
         
+        energino.ser.flushInput()
+
+        try:
+            readings = energino.fetch()
+            vReadings = vm.fetch()
+        except KeyboardInterrupt:
+            logging.debug("Bye!")
+            sys.exit()
+        #except:
+        #    logging.debug("0 [V] 0 [A] 0 [W] 0 [samples] 0 [window] 0 [virtual]")
+        else:
+            logging.info("%s [V] %s [A] %s [W] %s [samples] %s [window] %s [virtual]" % (readings['voltage'], readings['current'], readings['power'], readings['samples'], readings['window'], vReadings['power']))
+    
 if __name__ == "__main__":
     main()
     

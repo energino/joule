@@ -37,8 +37,9 @@ import sqlite3
 import numpy as np
 import scipy.io
 
-DEFAULT_JOULE = './joule.json'
 DEFAULT_OUTPUT_DIR = './'
+
+DEFAULT_JOULE = './joule.json'
 
 def main():
 

@@ -70,7 +70,7 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
 
-    joule = { 'probes' : {}, 'stints' : [] }
+    joule = { 'probes' : {}, 'models' : {}, 'stints' : [] }
 
     for rate in options.rates.split(" "):
         
@@ -115,6 +115,17 @@ def main():
         }
     }
 
+    joule['models'] = { 
+        "TX": {
+            "src": "A",
+            "dst": "B"
+        },
+        "RX": {
+            "src": "B",
+            "dst": "A"
+        }
+    }
+    
     with open(os.path.expanduser(options.joule), 'w') as data_file:    
         json.dump(joule, data_file, sort_keys=True, indent=4, separators=(',', ': '))
             

@@ -29,6 +29,7 @@
 A system daemon interfacing energino with Xively
 """
 
+import os
 import time
 import signal
 import logging
@@ -41,16 +42,15 @@ import ConfigParser
 import json
 
 from collections import deque
-from energino import PyEnergino
+from virtualmeter import VirtualMeter
 
-DEFAULT_CONFIG = '/etc/xively.conf'
+DEFAULT_CONFIG = '/etc/joule/xively.conf'
+DEFAULT_MODELS = '/etc/joule/models.json'
 
-DEFAULT_INTERVAL = "5000"
+DEFAULT_INTERVAL = 5
 DEFAULT_HOST = 'api.xively.com'
 DEFAULT_PORT = 80
-DEFAULT_BPS = 115200
-DEFAULT_DEVICE = '/dev/ttyACM'
-DEFAULT_PERIOD = "10"
+DEFAULT_PERIOD = 10
 
 LOG_FORMAT = '%(asctime)-15s %(message)s'
     
@@ -86,9 +86,12 @@ class DispatcherProcedure(threading.Thread):
         self.streams[stream] = { "id" : stream, "datapoints" : [], "unit": { "type": si, "label": label, "symbol": symbol } }
 
     def process(self):
+        
         if len(self.outgoing) == 0:
             return
+        
         with self.lock:
+            
             feed = self.dispatcher.getJsonFeed()
             feed['datastreams'] = []
             
@@ -98,10 +101,12 @@ class DispatcherProcedure(threading.Thread):
             pending = deque()
             
             while self.outgoing:
+                
                 readings = self.outgoing.popleft()
                 pending.append(readings)
                 
                 for stream in self.streams.values():
+                    
                     stream['current_value'] = readings[stream['id']] 
                     stream['at'] = readings['at']     
                     stream['datapoints'].append({ "at" :  readings['at'], "value" :  readings[stream['id']] })
@@ -110,31 +115,39 @@ class DispatcherProcedure(threading.Thread):
                 feed['datastreams'].append(stream)
                 
         logging.debug("updating feed %s, sending %s samples" % (self.dispatcher.feed, len(pending)) )
+        
         try:
+            
             conn = httplib.HTTPConnection(host=self.dispatcher.host, port=self.dispatcher.port, timeout=10)
             conn.request('PUT', "/v2/feeds/%s" % self.dispatcher.feed, json.dumps(feed), { 'X-ApiKey' : self.dispatcher.key })
             resp = conn.getresponse()
             conn.close() 
+            
             if resp.status != 200:
                 logging.error("%s (%s), rolling back %u updates" % (resp.reason, resp.status, len(pending)))
                 self.dispatcher.discover()
                 while pending:
                     self.outgoing.appendleft(pending.pop())
+                    
         except Exception, e:
+            
             logging.error("exception %s, rolling back %u updates" % (str(e), len(pending)))
             while pending:
                 self.outgoing.appendleft(pending.pop())
         
-    def enqueue(self, readings):
+    def enqueue(self, readings, send = True):
         with self.lock:
             self.outgoing.append(readings)
+        if send:
+            self.process()
 
 class Dispatcher(threading.Thread):
 
-    def __init__(self, uuid, config):
+    def __init__(self, uuid, config, models):
         super(Dispatcher, self).__init__()
         logging.info("uuid %s" % str(uuid))
         self.uuid = str(uuid)
+        self.models = models
         self.daemon = True
         self.stop = threading.Event()
         self.config = config
@@ -167,8 +180,6 @@ class Dispatcher(threading.Thread):
         
         config = ConfigParser.SafeConfigParser({'host' : DEFAULT_HOST, 
                                                 'port' : DEFAULT_PORT, 
-                                                'device' : DEFAULT_DEVICE, 
-                                                'bps' : DEFAULT_BPS, 
                                                 'feed' : '',
                                                 'key' : '-',
                                                 'interval': DEFAULT_INTERVAL,
@@ -190,8 +201,6 @@ class Dispatcher(threading.Thread):
         self.key = config.get("General", "key")
         self.host = config.get("General", "host")
         self.port = config.getint("General", "port")
-        self.device = config.get("General", "device")
-        self.bps = config.get("General", "bps")
         self.feed = config.get("General", "feed")
         self.interval = config.getint("General", "interval")
         self.period = config.getint("General", "period")
@@ -213,8 +222,6 @@ class Dispatcher(threading.Thread):
         logging.info("key: %s" % self.key)
         logging.info("host: %s" % self.host)
         logging.info("port: %s" % self.port)
-        logging.info("device: %s" % self.device)
-        logging.info("bps: %s" % self.bps)
 
         if self.feed != '':
             logging.info("feed: %s" % self.feed)
@@ -278,8 +285,6 @@ class Dispatcher(threading.Thread):
         config.set("General", "key", self.key)
         config.set("General", "host", self.host)
         config.set("General", "port", str(self.port))
-        config.set("General", "device", self.device)
-        config.set("General", "bps", self.bps)
         config.set("General", "interval", str(self.interval))
         config.set("General", "period", str(self.period))
         
@@ -303,10 +308,7 @@ class XivelyClient(Dispatcher):
     def start(self):
         
         # start dispatcher
-        self.dispatcher.add_stream("voltage", "derivedSI", "Volts", "V")
-        self.dispatcher.add_stream("current", "derivedSI", "Amperes", "A")
-        self.dispatcher.add_stream("power", "derivedSI", "Watts", "W")
-        self.dispatcher.add_stream("switch", "derivedSI", "Switch", "S")
+        self.dispatcher.add_stream("virtual_power", "derivedSI", "Watts", "W")
         self.dispatcher.start()
         
         # start pool loop
@@ -315,15 +317,14 @@ class XivelyClient(Dispatcher):
                 # configure feed
                 self.discover()
                 # setup serial port
-                energino = PyEnergino(self.device, self.bps, self.interval)
+                vm = VirtualMeter(self.models)
                 # start updating
                 logging.info("begin polling")
                 while True:
-                    readings = energino.fetch()
-                    if readings == None:
-                        break
-                    logging.debug("appending new readings: %s [V] %s [A] %s [W] %u [Q]" % (readings['voltage'], readings['current'], readings['power'], len(self.dispatcher.outgoing)))
-                    self.dispatcher.enqueue(readings)
+                    readings = { 'power' : vm.fetch() } 
+                    logging.debug("appending new readings: %s [W]" % readings['power'] )
+                    self.dispatcher.enqueue(readings, True)
+                    time.sleep(self.interval)
             except Exception:
                 logging.exception("exception, backing off for %u seconds" % BACKOFF)
                 time.sleep(BACKOFF)
@@ -338,10 +339,14 @@ def main():
     p = optparse.OptionParser()
     p.add_option('--uuid', '-u', dest="uuid", default=uuid.getnode())
     p.add_option('--config', '-c', dest="config", default=DEFAULT_CONFIG)
+    p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--log', '-l', dest="log")
     p.add_option('--debug', '-d', action="store_true", dest="debug", default=False)       
     options, _ = p.parse_args()
 
+    with open(os.path.expanduser(options.models)) as data_file:    
+        models = json.load(data_file)
+        
     if options.debug:
         lvl = logging.DEBUG
     else:
@@ -355,7 +360,7 @@ def main():
     signal.signal(signal.SIGINT, sigint_handler)
     signal.signal(signal.SIGTERM, sigint_handler)
 
-    xively = XivelyClient(options.uuid, options.config)
+    xively = XivelyClient(options.uuid, options.config, models)
     xively.start()   
          
     signal.signal(signal.SIGINT, sigint_handler)

@@ -75,11 +75,11 @@ PROFILES = { '11a' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp },
 
 DEFAULT_PROFILE = '11g'
 
-class BaseModeller(threading.Thread):
+class Modeller(threading.Thread):
 
     def __init__(self, options):
 
-        super(BaseModeller, self).__init__()
+        super(Modeller, self).__init__()
         logging.info("starting modeler")
         self.stop_event = threading.Event()
         self.daemon = True
@@ -87,6 +87,7 @@ class BaseModeller(threading.Thread):
         self.device = options.device
         self.bps = options.bps
         self.readings = []
+        self.energino = PyEnergino(self.device, self.bps, self.interval)
 
     def reset_readings(self):
         self.readings = []
@@ -97,12 +98,6 @@ class BaseModeller(threading.Thread):
     def shutdown(self):
         logging.info("stopping modeler")
         self.stop_event.set()
-    
-class Modeller(BaseModeller):
-
-    def __init__(self, options):
-        super(Modeller, self).__init__(options)
-        self.energino = PyEnergino(self.device, self.bps, self.interval)
             
     def run(self):
         while not self.stop_event.isSet():
@@ -111,25 +106,6 @@ class Modeller(BaseModeller):
             except:
                 pass
     
-class VirtualModeller(BaseModeller):
-    
-    def run(self):
-        self.bitrate = 0
-        self.packetsize = 0
-        while True:
-            from random import randint
-            r = float(randint(1,1000) - 500) / 20000
-            if self.bitrate > 20:
-                base = 4.6
-            else:
-                base = self.bitrate * 0.04 + 3.84
-            if self.packetsize <= 60:
-                corr = 5.595 - 3.84
-            else:
-                corr = -0.2287 * math.log(self.packetsize) + 5.595 - 3.84
-            self.readings.append(base + corr + r)
-            time.sleep(float(self.interval) / 1000)
-
 class Probe(object):
     
     def __init__(self, probe):
@@ -219,7 +195,6 @@ def main():
     p.add_option('--size', '-s', dest="size")
     p.add_option('--skip', '-k', action="store_true", dest="skip", default=False)    
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
-    p.add_option('--virtual', '-e', action="store_true", dest="virtual", default=False)    
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
@@ -239,11 +214,7 @@ def main():
     logging.info("starting Joule Profiler")
 
     global ml
-
-    if options.virtual:
-        ml = VirtualModeller(options)
-    else:
-        ml = Modeller(options)
+    ml = Modeller(options)
 
     # starting modeller
     ml.start()
@@ -259,6 +230,8 @@ def main():
     median = np.median(readings)
     mean = np.mean(readings)
     ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
+
+    logging.info("median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
 
     data['idle'] =  { 'ci' : ci, 'median' : median, 'mean' : mean }
 
@@ -302,10 +275,6 @@ def main():
         # reset probes
         src.reset()
         dst.reset()
-
-        if options.virtual:
-            ml.bitrate = stint['bitrate_mbps']
-            ml.packetsize = stint['packetsize_bytes']
         
         # run stint
         readings = src.execute_stint(stint, tps)

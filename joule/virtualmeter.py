@@ -38,14 +38,13 @@ import json
 import os
 
 from click import write_handler
-from energino import PyEnergino, DEFAULT_PORT, DEFAULT_INTERVAL, DEFAULT_PORT_SPEED
 
 DEFAULT_JOULE = './joule.json'
 DEFAULT_MODELS = './models.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 
-def compute_power(alpha0, alpha1, x_max, beta, gamma, x, d):
-    if x == 0.0:
+def compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d):
+    if x < x_min:
         return gamma
     if x > x_max[str(d)]:
         x = x_max[str(d)]
@@ -66,6 +65,8 @@ class VirtualMeter(object):
         if results[0] != '200':
             raise Exception, "unable to query click: %s/%s" % (results[0], results[2])
 
+        time.sleep(0.1)
+
         self.packet_sizes = {}
         self.packet_sizes['RX'] = sorted([ int(x) for x in self.models['RX']['x_max'].keys() ], key=int)
         self.packet_sizes['TX'] = sorted([ int(x) for x in self.models['TX']['x_max'].keys() ], key=int)
@@ -83,6 +84,8 @@ class VirtualMeter(object):
 
         if rx_results[0] != '200' or tx_results[0] != '200':
             return { 'power' : 0.0 }
+
+        time.sleep(0.1)
 
         delta = time.time() - self.last
         self.last = time.time()
@@ -110,6 +113,11 @@ class VirtualMeter(object):
         x_max = self.models[model]['x_max']
         beta = self.models[model]['beta']
         gamma = self.models['gamma']
+        
+        if 'x_min' in self.models:
+            x_min = self.models['x_min']
+        else:
+            x_min = 0.1
 
         for i in range(0, len(diff)):
         
@@ -119,7 +127,7 @@ class VirtualMeter(object):
             x = ( ( self.packet_sizes[model][i] * diff[i] * 8 ) / delta ) / 1000000
             d = self.packet_sizes[model][i]
             
-            power = power + compute_power(alpha0, alpha1, x_max, beta, gamma, x, d) - gamma
+            power = power + compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d) - gamma
         
         return power
 
@@ -137,9 +145,7 @@ def main():
 
     p = optparse.OptionParser()
 
-    p.add_option('--port', '-p', dest="port", default=DEFAULT_PORT)
-    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
-    p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
+    p.add_option('--interval', '-i', dest="interval", default=2000)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--log', '-l', dest="log")
@@ -156,23 +162,19 @@ def main():
     
     logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
     
-    energino = PyEnergino(options.port, options.bps, int(options.interval))
     vm = VirtualMeter(models)
     
     while True:
-        
-        energino.ser.flushInput()
-
         try:
-            readings = energino.fetch()
-            vReadings = vm.fetch()
+            power = vm.fetch()
+            time.sleep(options.innterval)
         except KeyboardInterrupt:
             logging.debug("Bye!")
             sys.exit()
-        #except:
-        #    logging.debug("0 [V] 0 [A] 0 [W] 0 [samples] 0 [window] 0 [virtual]")
+        except:
+            logging.debug("0 [W]")
         else:
-            logging.info("%s [V] %s [A] %s [W] %s [samples] %s [window] %s [virtual]" % (readings['voltage'], readings['current'], readings['power'], readings['samples'], readings['window'], vReadings['power']))
+            logging.info("%f [W]" % power)
     
 if __name__ == "__main__":
     main()

@@ -43,7 +43,7 @@ import sys
 import time
 import threading
 import math
-import numpy
+import numpy as np
 
 from click import read_handler, write_handler
 from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
@@ -110,7 +110,7 @@ class Modeller(BaseModeller):
                 self.readings.append(self.energino.fetch('power'))
             except:
                 pass
-
+    
 class VirtualModeller(BaseModeller):
     
     def run(self):
@@ -256,9 +256,9 @@ def main():
     time.sleep(2)
 
     # compute statistics
-    median = numpy.median(readings)
-    mean = numpy.mean(readings)
-    ci = 1.96 * (numpy.std(readings) / numpy.sqrt(len(readings)) )
+    median = np.median(readings)
+    mean = np.mean(readings)
+    ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
 
     data['idle'] =  { 'ci' : ci, 'median' : median, 'mean' : mean }
 
@@ -312,9 +312,9 @@ def main():
 
         # compute statistics
         
-        median = numpy.median(readings)
-        mean = numpy.mean(readings)
-        ci = 1.96 * (numpy.std(readings) / numpy.sqrt(len(readings)) )
+        median = np.median(readings)
+        mean = np.mean(readings)
+        ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
         
         logging.info("median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
 
@@ -329,16 +329,16 @@ def main():
         logging.info("client sent %u packets in %f s" % (client_count, client_interval))
         logging.info("server received %u packets in %f s" % (server_count, server_interval))
 
-	tp = 0
-	if client_interval != 0:
-        	tp = float(client_count * stint['packetsize_bytes'] * 8) / client_interval
-	gp = 0
-	if server_interval != 0:        
-		gp = float(server_count * stint['packetsize_bytes'] * 8) / server_interval
-        
-	losses = 0
-	if client_count != 0:
-        	losses = float( client_count - server_count ) / client_count
+        tp = 0
+        if client_interval != 0:
+            tp = float(client_count * stint['packetsize_bytes'] * 8) / client_interval
+        gp = 0
+        if server_interval != 0:        
+            gp = float(server_count * stint['packetsize_bytes'] * 8) / server_interval
+            
+        losses = 0
+        if client_count != 0:
+            losses = float( client_count - server_count ) / client_count
         
         logging.info("actual throughput %s" % bps_to_human(tp))
         logging.info("actual goodput %s" % bps_to_human(gp))

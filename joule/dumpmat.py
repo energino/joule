@@ -52,6 +52,8 @@ def main():
     with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
 
+    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] } 
+
     conn = sqlite3.connect(':memory:')
     c = conn.cursor()
     c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci)''')
@@ -68,9 +70,13 @@ def main():
         pairs.append(row)
 
     for pair in pairs:
+        if pair in lookup_table:
+            model = lookup_table[pair]
+        else: 
+            model = '%s_%s' % pair        
         stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
         basename = os.path.splitext(os.path.basename(os.path.expanduser(options.joule)))[0]
-        filename = os.path.expanduser(options.output + '/' + basename + '_%s_%s.mat' % tuple(pair))
+        filename = os.path.expanduser(options.output + '/' + basename + '_%s.mat' % model)
         scipy.io.savemat(filename, { 'DATA' : np.array(stints), 'IDLE' : data['idle']['median'] }, oned_as = 'column')
 
 if __name__ == "__main__":

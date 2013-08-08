@@ -253,6 +253,7 @@ def main():
     ml.reset_readings()
     time.sleep(120)
     readings = ml.get_readings()
+    time.sleep(2)
 
     # compute statistics
     median = numpy.median(readings)

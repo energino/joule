@@ -33,7 +33,6 @@ import os
 import time
 import signal
 import logging
-import uuid
 import sys
 import optparse
 import httplib
@@ -86,56 +85,39 @@ class DispatcherProcedure(threading.Thread):
         self.streams[stream] = { "id" : stream, "datapoints" : [], "unit": { "type": si, "label": label, "symbol": symbol } }
 
     def process(self):
-        
         if len(self.outgoing) == 0:
             return
-        
         with self.lock:
-            
             feed = self.dispatcher.getJsonFeed()
             feed['datastreams'] = []
-            
             for stream in self.streams.values():
                 stream['datapoints'] = []
-
             pending = deque()
-            
             while self.outgoing:
-                
                 readings = self.outgoing.popleft()
                 pending.append(readings)
-                
                 for stream in self.streams.values():
-                    
                     stream['current_value'] = readings[stream['id']] 
-                    stream['at'] = readings['at']     
                     stream['datapoints'].append({ "at" :  readings['at'], "value" :  readings[stream['id']] })
-
             for stream in self.streams.values():
                 feed['datastreams'].append(stream)
-                
         logging.debug("updating feed %s, sending %s samples" % (self.dispatcher.feed, len(pending)) )
-        
         try:
-            
             conn = httplib.HTTPConnection(host=self.dispatcher.host, port=self.dispatcher.port, timeout=10)
             conn.request('PUT', "/v2/feeds/%s" % self.dispatcher.feed, json.dumps(feed), { 'X-ApiKey' : self.dispatcher.key })
             resp = conn.getresponse()
             conn.close() 
-            
             if resp.status != 200:
                 logging.error("%s (%s), rolling back %u updates" % (resp.reason, resp.status, len(pending)))
                 self.dispatcher.discover()
                 while pending:
                     self.outgoing.appendleft(pending.pop())
-                    
         except Exception, e:
-            
             logging.error("exception %s, rolling back %u updates" % (str(e), len(pending)))
             while pending:
                 self.outgoing.appendleft(pending.pop())
         
-    def enqueue(self, readings, send = True):
+    def enqueue(self, readings, send = False):
         with self.lock:
             self.outgoing.append(readings)
         if send:
@@ -308,7 +290,7 @@ class XivelyClient(Dispatcher):
     def start(self):
         
         # start dispatcher
-        self.dispatcher.add_stream("virtual_power", "derivedSI", "Watts", "W")
+        self.dispatcher.add_stream("virtual", "derivedSI", "Watts", "W")
         self.dispatcher.start()
         
         # start pool loop
@@ -321,9 +303,9 @@ class XivelyClient(Dispatcher):
                 # start updating
                 logging.info("begin polling")
                 while True:
-                    readings = { 'power' : vm.fetch() } 
-                    logging.debug("appending new readings: %s [W]" % readings['power'] )
-                    self.dispatcher.enqueue(readings, True)
+                    readings = vm.fetch()  
+                    logging.debug("appending new readings: %s [W]" % readings['virtual'] )
+                    self.dispatcher.enqueue(readings)
                     time.sleep(self.interval)
             except Exception:
                 logging.exception("exception, backing off for %u seconds" % BACKOFF)
@@ -337,7 +319,7 @@ def sigint_handler(signal, frame):
 def main():
 
     p = optparse.OptionParser()
-    p.add_option('--uuid', '-u', dest="uuid", default=uuid.getnode())
+    p.add_option('--uuid', '-u', dest="uuid", default="Energino")
     p.add_option('--config', '-c', dest="config", default=DEFAULT_CONFIG)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--log', '-l', dest="log")

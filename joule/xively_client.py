@@ -305,7 +305,7 @@ class XivelyClient(Dispatcher):
                 while True:
                     readings = vm.fetch()  
                     logging.debug("appending new readings: %s [W]" % readings['virtual'] )
-                    self.dispatcher.enqueue(readings)
+                    self.dispatcher.enqueue(readings, True)
                     time.sleep(self.interval)
             except Exception:
                 logging.exception("exception, backing off for %u seconds" % BACKOFF)

@@ -36,6 +36,7 @@ import numpy as np
 import time
 import json
 import os
+import datetime
 
 from click import write_handler
 
@@ -99,8 +100,12 @@ class VirtualMeter(object):
 
         self.bins['RX'] = bins['RX'][:]
         self.bins['TX'] = bins['TX'][:]
-        
-        return { 'power' : power_rx + power_tx + self.models['gamma'] }
+
+        readings = {}
+        readings['virtual'] = power_rx + power_tx + self.models['gamma'] 
+        readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                
+        return readings
   
     def compute(self, bins_curr, bins_prev, model, delta):
         
@@ -166,7 +171,7 @@ def main():
     
     while True:
         try:
-            power = vm.fetch()
+            readings = vm.fetch()
             time.sleep(options.innterval)
         except KeyboardInterrupt:
             logging.debug("Bye!")
@@ -174,7 +179,7 @@ def main():
         except:
             logging.debug("0 [W]")
         else:
-            logging.info("%f [W]" % power)
+            logging.info("%f [W]" % readings['virtual'])
     
 if __name__ == "__main__":
     main()

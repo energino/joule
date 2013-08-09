@@ -68,7 +68,7 @@ class VirtualMeter(object):
         
         self.last = time.time()
         
-    def fetch(self):
+    def fetch(self, field = None):
 
         delta = time.time() - self.last
         self.last = time.time()
@@ -87,6 +87,8 @@ class VirtualMeter(object):
         readings['virtual'] = power_rx + power_tx + self.models['gamma'] 
         readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
                 
+        if field != None:
+            return readings[field]
         return readings
   
     def compute(self, bins_curr, bins_prev, model, delta):

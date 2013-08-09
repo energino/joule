@@ -47,6 +47,7 @@ import numpy as np
 
 from click import read_handler, write_handler
 from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
+from virtualmeter import VirtualMeter
 
 DEFAULT_JOULE = './joule.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
@@ -77,23 +78,20 @@ DEFAULT_PROFILE = '11g'
 
 class Modeller(threading.Thread):
 
-    def __init__(self, options):
+    def __init__(self, options, backend):
 
         super(Modeller, self).__init__()
         logging.info("starting modeler")
         self.stop_event = threading.Event()
         self.daemon = True
-        self.interval = int(options.interval)
-        self.device = options.device
-        self.bps = options.bps
         self.readings = []
-        self.energino = PyEnergino(self.device, self.bps, self.interval)
+        self.backend = backend
 
     def reset_readings(self):
         self.readings = []
         
     def get_readings(self):
-        return list(self.readings)
+        return self.readings[:]
 
     def shutdown(self):
         logging.info("stopping modeler")
@@ -102,7 +100,7 @@ class Modeller(threading.Thread):
     def run(self):
         while not self.stop_event.isSet():
             try:
-                self.readings.append(self.energino.fetch('power'))
+                self.readings.append(self.backend.fetch('power'))
             except:
                 pass
     
@@ -190,6 +188,7 @@ def main():
     p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
     p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
+    p.add_option('--models', '-m', dest="models", default=None)
     p.add_option('--profile', '-p', dest="profile", default=DEFAULT_PROFILE)
     p.add_option('--rate', '-r', dest="rate")
     p.add_option('--size', '-s', dest="size")
@@ -198,10 +197,13 @@ def main():
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
-    expanded_path = os.path.expanduser(options.joule)
-
-    with open(expanded_path) as data_file:    
+    with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
+
+    models = None
+    if options.models != None:
+        with open(os.path.expanduser(options.models)) as data_file:    
+            models = json.load(data_file)
 
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
@@ -213,17 +215,33 @@ def main():
 
     logging.info("starting Joule Profiler")
 
+    # initialize modeller
     global ml
-    ml = Modeller(options)
+    energino = PyEnergino(options.device, options.bps, options.interval)
+    ml = Modeller(energino)
 
     # starting modeller
     ml.start()
 
+    # initialize virtual modeller
+    if models != None:
+        
+        global vm
+        vmeter = VirtualMeter(models)
+        vm = Modeller(vmeter)
+        
+        # starting virtual modeller
+        vm.start()
+
     # evaluate idle power consumption
     logging.info("evaluating idle power consumption")
     ml.reset_readings()
+    if models != None:
+        vm.reset_readings()
     time.sleep(120)
     readings = ml.get_readings()
+    if models != None:
+        v_readings = vm.get_readings()
     time.sleep(2)
 
     # compute statistics
@@ -235,7 +253,7 @@ def main():
 
     data['idle'] =  { 'ci' : ci, 'median' : median, 'mean' : mean }
 
-    with open(expanded_path, 'w') as data_file:    
+    with open(os.path.expanduser(options.joule), 'w') as data_file:    
         json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
     # start with the stints
@@ -315,7 +333,7 @@ def main():
 
         stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp }
 
-        with open(expanded_path, 'w') as data_file:    
+        with open(os.path.expanduser(options.joule), 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
         # sleep in order to let the network settle down
@@ -324,5 +342,9 @@ def main():
     # stopping modeller
     ml.shutdown()
         
+    # stopping virtual modeller
+    if models != None:
+        vm.shutdown()
+
 if __name__ == "__main__":
     main()

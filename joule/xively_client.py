@@ -98,7 +98,7 @@ class DispatcherProcedure(threading.Thread):
                 pending.append(readings)
                 for stream in self.streams.values():
                     stream['current_value'] = readings[stream['id']] 
-                    stream['datapoints'].append({ "at" :  readings['at'], "value" :  readings[stream['id']] })
+                    stream['datapoints'].append({ "at" :  readings['at'], "value" :  "%.3f" % readings[stream['id']] })
             for stream in self.streams.values():
                 feed['datastreams'].append(stream)
         logging.debug("updating feed %s, sending %s samples" % (self.dispatcher.feed, len(pending)) )

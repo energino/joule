@@ -58,16 +58,6 @@ class VirtualMeter(object):
         
         self.models = models
         
-        results = write_handler('127.0.0.1', 7777, "ac_rx.write_text_file /tmp/RX")
-        if results[0] != '200':
-            raise Exception, "unable to query click: %s/%s" % (results[0], results[2])
-
-        results = write_handler('127.0.0.1', 7777, "ac_tx.write_text_file /tmp/TX")
-        if results[0] != '200':
-            raise Exception, "unable to query click: %s/%s" % (results[0], results[2])
-
-        time.sleep(0.1)
-
         self.packet_sizes = {}
         self.packet_sizes['RX'] = sorted([ int(x) for x in self.models['RX']['x_max'].keys() ], key=int)
         self.packet_sizes['TX'] = sorted([ int(x) for x in self.models['TX']['x_max'].keys() ], key=int)
@@ -79,14 +69,6 @@ class VirtualMeter(object):
         self.last = time.time()
         
     def fetch(self):
-
-        rx_results = write_handler('127.0.0.1', 7777, "ac_rx.write_text_file /tmp/RX")
-        tx_results = write_handler('127.0.0.1', 7777, "ac_tx.write_text_file /tmp/TX")
-
-        if rx_results[0] != '200' or tx_results[0] != '200':
-            return { 'power' : 0.0 }
-
-        time.sleep(0.1)
 
         delta = time.time() - self.last
         self.last = time.time()
@@ -137,12 +119,18 @@ class VirtualMeter(object):
         return power
 
     def generate_bins(self, model):
+        results = write_handler('127.0.0.1', 7777, "%s.write_text_file /tmp/%s" % (model, model))
+        if results[0] != '200':
+            return np.array([])
+        time.sleep(0.2)
         A = np.genfromtxt('/tmp/%s' % model, dtype=int, comments="!")
         bins = np.zeros(shape=(len(self.packet_sizes[model]),1))
         for a in A:
-            for i in range(0, len(self.packet_sizes[model]) - 1):
-                if a[0] > self.packet_sizes[model][i] and a[0] <= self.packet_sizes[model][i + 1]:
-                    bins[i] = bins[i] + a[1]
+            size = a[0]# - 34 - 20 - 20
+            count = a[1]
+            for i in range(0, len(self.packet_sizes)):
+                if size <= self.packet_sizes[i]:
+                    bins[i] = bins[i] + count
                     break
         return bins
                 

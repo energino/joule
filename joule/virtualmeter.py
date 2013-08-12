@@ -120,7 +120,7 @@ class VirtualMeter(object):
             d = self.packet_sizes[model][i]
             p = compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d) - gamma
             power = power + p
-            logging.info("%u bytes, %u pkts, %f s -> %f [Mb/s] %f [W]" % (d, diff[i], delta, x, p))
+            logging.debug("%u bytes, %u pkts, %f s -> %f [Mb/s] %f [W]" % (d, diff[i], delta, x, p))
             
         return power
 

@@ -282,8 +282,9 @@ def main():
     if models != None:
         data['virtual'] = process_readings(v_readings, True)
 
-    with open(os.path.expanduser(options.joule), 'w') as data_file:    
-        json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+    if models is None:
+        with open(os.path.expanduser(options.joule), 'w') as data_file:    
+            json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
     # start with the stints
     logging.info("running stints")
@@ -354,8 +355,9 @@ def main():
         logging.info("actual goodput %s" % bps_to_human(gp))
         logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
 
-        with open(os.path.expanduser(options.joule), 'w') as data_file:    
-            json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+        if models is None:
+            with open(os.path.expanduser(options.joule), 'w') as data_file:    
+                json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
         # sleep in order to let the network settle down
         time.sleep(2)

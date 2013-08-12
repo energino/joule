@@ -78,7 +78,7 @@ DEFAULT_PROFILE = '11g'
 
 class Modeller(threading.Thread):
 
-    def __init__(self, options, backend):
+    def __init__(self, backend):
 
         super(Modeller, self).__init__()
         logging.info("starting modeler")
@@ -161,24 +161,49 @@ class Probe(object):
         self._dh(write_handler(self.ip, self.sender_control, 'src.limit %u' % self._limit))
         self._dh(write_handler(self.ip, self.sender_control, 'sha.rate %u' % tps))
 
+        global models
         global ml
+
+        if models != None:
+            global vm
 
         logging.info("starting probe (%s)" % self.ip)
         self._dh(write_handler(self.ip, self.sender_control, 'src.active true'))
         
         ml.reset_readings()
+        if models != None:
+            vm.reset_readings()
         time.sleep(self._duration)
         readings = ml.get_readings()
+        if models != None:
+            v_readings = vm.get_readings()
 
         logging.info("stopping probe (%s)" % self.ip)
         self._dh(write_handler(self.ip, self.sender_control, 'src.active false'))
 
-        return readings
+        if models != None:
+            return readings, v_readings
+
+        return readings, []
+
+def process_readings(readings, virtual = False):
+
+    median = np.median(readings)
+    mean = np.mean(readings)
+    ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
+
+    if virtual:
+        logging.info("[virtual] median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
+    else:
+        logging.info("median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
+
+    return { 'ci' : ci, 'median' : median, 'mean' : mean }
 
 def sigint_handler(signal, frame):
     logging.info("Received SIGINT, terminating...")
-    global ml
-    ml.shutdown()
+    global probeObjs
+    for probe in probeObjs.values():
+        probe.reset()
     sys.exit(0)
 
 def main():
@@ -200,6 +225,7 @@ def main():
     with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
 
+    global models
     models = None
     if options.models != None:
         with open(os.path.expanduser(options.models)) as data_file:    
@@ -227,11 +253,17 @@ def main():
     if models != None:
         
         global vm
-        vmeter = VirtualMeter(models)
+        vmeter = VirtualMeter(models, float(options.interval) / 1000)
         vm = Modeller(vmeter)
         
         # starting virtual modeller
         vm.start()
+
+    # initialize probe objects
+    global probeObjs
+    probeObjs = {}
+    for probe in data['probes']:
+        probeObjs[probe] = Probe(data['probes'][probe])
 
     # evaluate idle power consumption
     logging.info("evaluating idle power consumption")
@@ -245,23 +277,16 @@ def main():
     time.sleep(2)
 
     # compute statistics
-    median = np.median(readings)
-    mean = np.mean(readings)
-    ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
+    data['idle'] = process_readings(readings, False)
 
-    logging.info("median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
-
-    data['idle'] =  { 'ci' : ci, 'median' : median, 'mean' : mean }
+    if models != None:
+        data['virtual'] = process_readings(v_readings, True)
 
     with open(os.path.expanduser(options.joule), 'w') as data_file:    
         json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
     # start with the stints
     logging.info("running stints")
-
-    probeObjs = {}
-    for probe in data['probes']:
-        probeObjs[probe] = Probe(data['probes'][probe])
 
     for i in range(0, len(data['stints'])):
 
@@ -295,15 +320,13 @@ def main():
         dst.reset()
         
         # run stint
-        readings = src.execute_stint(stint, tps)
+        [ readings, v_readings ] = src.execute_stint(stint, tps)
 
         # compute statistics
-        
-        median = np.median(readings)
-        mean = np.mean(readings)
-        ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
-        
-        logging.info("median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
+        stint['stats'] = process_readings(readings)
+
+        # compute statistics
+        stint['virtual'] = process_readings(v_readings, True)
 
         src_status = src.status()
         dst_status = dst.status()
@@ -330,8 +353,6 @@ def main():
         logging.info("actual throughput %s" % bps_to_human(tp))
         logging.info("actual goodput %s" % bps_to_human(gp))
         logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
-
-        stint['stats'] = { 'ci' : ci, 'median' : median, 'mean' : mean, 'losses' : losses, 'tp' : tp, 'gp' : gp }
 
         with open(os.path.expanduser(options.joule), 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))

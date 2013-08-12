@@ -34,7 +34,7 @@ possible permutations between the rates list and the packets sizes list. It
 is possible to define also the duration of each stint. By default the 
 descriptor is ~/joule.json. The default behavior is the following:
 
-template -a 127.0.0.1 -b 127.0.0.1 -r "1 2 4 8" -s "64 1000 1460" -d 5
+template -a 127.0.0.1 -b 127.0.0.1 -r "0.1 0.5 1 2 5 10 15 20 25 30 35 40" -s "32 64 128 256 384 512 640 768 1024 1280 1460 1534 1788 2048" -d 30
 
 """
 
@@ -95,6 +95,8 @@ def main():
             }   
 
             joule['stints'].append(stint)
+
+    joule['idle'] = { "duration_s": int(options.duration) }
     
     joule['probes'] = {
         "A": {

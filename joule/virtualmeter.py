@@ -40,8 +40,9 @@ import datetime
 
 from click import write_handler
 
-DEFAULT_JOULE = './joule.json'
 DEFAULT_MODELS = './models.json'
+DEFAULT_INTERVAL = 2000
+
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 
 def compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d):
@@ -54,9 +55,10 @@ def compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d):
 
 class VirtualMeter(object):
     
-    def __init__(self, models):
+    def __init__(self, models, interval):
         
         self.models = models
+        self.interval = interval
         
         self.packet_sizes = {}
         self.packet_sizes['RX'] = sorted([ int(x) for x in self.models['RX']['x_max'].keys() ], key=int)
@@ -69,6 +71,9 @@ class VirtualMeter(object):
         self.last = time.time()
         
     def fetch(self, field = None):
+
+        if self.interval > 0:
+	    time.sleep(self.interval)
 
         delta = time.time() - self.last
         self.last = time.time()
@@ -84,7 +89,7 @@ class VirtualMeter(object):
         self.bins['TX'] = bins['TX'][:]
 
         readings = {}
-        readings['virtual'] = power_rx + power_tx + self.models['gamma'] 
+        readings['power'] = power_rx + self.models['gamma'] 
         readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
                 
         if field != None:
@@ -94,7 +99,7 @@ class VirtualMeter(object):
     def compute(self, bins_curr, bins_prev, model, delta):
         
         power = 0.0
-        
+
         diff = [ x[0] for x in (bins_curr - bins_prev).tolist() ]
         
         alpha0 = self.models[model]['alpha0']
@@ -109,29 +114,35 @@ class VirtualMeter(object):
             x_min = 0.1
 
         for i in range(0, len(diff)):
-        
             if diff[i] == 0.0:
                 continue
-
             x = ( ( self.packet_sizes[model][i] * diff[i] * 8 ) / delta ) / 1000000
             d = self.packet_sizes[model][i]
+            p = compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d) - gamma
+            power = power + p
+            logging.info("%u bytes, %u pkts, %f s -> %f [Mb/s] %f [W]" % (d, diff[i], delta, x, p))
             
-            power = power + compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d) - gamma
-        
         return power
 
     def generate_bins(self, model):
-        results = write_handler('127.0.0.1', 7777, "%s.write_text_file /tmp/%s" % (model, model))
+        results = write_handler('127.0.0.1', 5555, "%s.write_text_file /tmp/%s" % (model, model))
         if results[0] != '200':
             return np.array([])
-        time.sleep(0.2)
-        A = np.genfromtxt('/tmp/%s' % model, dtype=int, comments="!")
+        time.sleep(0.1)
+        try:
+            A = np.genfromtxt('/tmp/%s' % model, dtype=int, comments="!")
+        except IOError:
+            A = np.array([[]])
         bins = np.zeros(shape=(len(self.packet_sizes[model]),1))
+        if np.ndim(A) != 2:
+            return bins
         for a in A:
-            size = a[0]# - 34 - 20 - 20
+            if len(a) == 0:
+                continue
+            size = a[0] - 12 - 20 - 12
             count = a[1]
-            for i in range(0, len(self.packet_sizes)):
-                if size <= self.packet_sizes[i]:
+            for i in range(0, len(self.packet_sizes[model])):
+                if size <= self.packet_sizes[model][i]:
                     bins[i] = bins[i] + count
                     break
         return bins
@@ -140,7 +151,7 @@ def main():
 
     p = optparse.OptionParser()
 
-    p.add_option('--interval', '-i', dest="interval", default=2000)
+    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--log', '-l', dest="log")
@@ -157,19 +168,18 @@ def main():
     
     logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
     
-    vm = VirtualMeter(models)
+    vm = VirtualMeter(models, float(options.interval) / 1000)
     
     while True:
         try:
             readings = vm.fetch()
-            time.sleep(options.innterval)
         except KeyboardInterrupt:
             logging.debug("Bye!")
             sys.exit()
         except:
             logging.debug("0 [W]")
         else:
-            logging.info("%f [W]" % readings['virtual'])
+            logging.info("%f [W]" % readings['power'])
     
 if __name__ == "__main__":
     main()

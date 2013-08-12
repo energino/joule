@@ -81,7 +81,7 @@ class Modeller(threading.Thread):
     def __init__(self, backend):
 
         super(Modeller, self).__init__()
-        logging.info("starting modeler")
+        logging.info("starting modeler (%s)" % backend.__class__.__name__)
         self.stop_event = threading.Event()
         self.daemon = True
         self.readings = []
@@ -121,12 +121,12 @@ class Probe(object):
         return handler    
     
     def reset(self):
-        logging.info('resetting click sender daemon (%s:%s)' % (self.ip, self.sender_control))
+        logging.info('resetting click send daemon (%s:%s)' % (self.ip, self.sender_control))
         self._dh(write_handler(self.ip, self.sender_control, 'src.active false'))
         self._dh(write_handler(self.ip, self.sender_control, 'src.reset'))
         self._dh(write_handler(self.ip, self.sender_control, 'counter_client.reset'))
         self._dh(write_handler(self.ip, self.sender_control, 'tr_client.reset'))
-        logging.info('resetting click recevier daemon (%s:%s)' % (self.ip, self.sender_control))
+        logging.info('resetting click recv daemon (%s:%s)' % (self.ip, self.sender_control))
         self._dh(write_handler(self.ip, self.receiver_control, 'counter_server.reset'))
         self._dh(write_handler(self.ip, self.receiver_control, 'tr_server.reset'))
         self._packet_rate = 10
@@ -143,7 +143,7 @@ class Probe(object):
         status['server_interval'] = float(self._dh(read_handler(self.ip, self.receiver_control, 'tr_server.interval'))[2])
         return status
 
-    def execute_stint(self, stint, tps):
+    def configure_stint(self, stint, tps):
         
         self._packet_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
         self._packetsize_bytes = stint['packetsize_bytes'] 
@@ -161,30 +161,13 @@ class Probe(object):
         self._dh(write_handler(self.ip, self.sender_control, 'src.limit %u' % self._limit))
         self._dh(write_handler(self.ip, self.sender_control, 'sha.rate %u' % tps))
 
-        global models
-        global ml
-
-        if models != None:
-            global vm
-
+    def start_stint(self):
         logging.info("starting probe (%s)" % self.ip)
         self._dh(write_handler(self.ip, self.sender_control, 'src.active true'))
-        
-        ml.reset_readings()
-        if models != None:
-            vm.reset_readings()
-        time.sleep(self._duration)
-        readings = ml.get_readings()
-        if models != None:
-            v_readings = vm.get_readings()
 
+    def stop_stint(self):
         logging.info("stopping probe (%s)" % self.ip)
         self._dh(write_handler(self.ip, self.sender_control, 'src.active false'))
-
-        if models != None:
-            return readings, v_readings
-
-        return readings, []
 
 def process_readings(readings, virtual = False):
 
@@ -201,9 +184,6 @@ def process_readings(readings, virtual = False):
 
 def sigint_handler(signal, frame):
     logging.info("Received SIGINT, terminating...")
-    global probeObjs
-    for probe in probeObjs.values():
-        probe.reset()
     sys.exit(0)
 
 def main():
@@ -225,8 +205,6 @@ def main():
     with open(os.path.expanduser(options.joule)) as data_file:    
         data = json.load(data_file)
 
-    global models
-    models = None
     if options.models != None:
         with open(os.path.expanduser(options.models)) as data_file:    
             models = json.load(data_file)
@@ -242,17 +220,15 @@ def main():
     logging.info("starting Joule Profiler")
 
     # initialize modeller
-    global ml
     energino = PyEnergino(options.device, options.bps, options.interval)
     ml = Modeller(energino)
 
     # starting modeller
     ml.start()
 
-    # initialize virtual modeller
-    if models != None:
+    if options.models != None:
         
-        global vm
+        # initialize virtual modeller
         vmeter = VirtualMeter(models, float(options.interval) / 1000)
         vm = Modeller(vmeter)
         
@@ -260,31 +236,33 @@ def main():
         vm.start()
 
     # initialize probe objects
-    global probeObjs
     probeObjs = {}
     for probe in data['probes']:
         probeObjs[probe] = Probe(data['probes'][probe])
 
     # evaluate idle power consumption
     logging.info("evaluating idle power consumption")
+    logging.info("idle time is %us" % data['idle']['duration_s'] )
     ml.reset_readings()
-    if models != None:
+    if options.models != None:
         vm.reset_readings()
-    time.sleep(120)
+    time.sleep(data['idle']['duration_s'])
     readings = ml.get_readings()
-    if models != None:
+    if options.models != None:
         v_readings = vm.get_readings()
-    time.sleep(2)
 
     # compute statistics
-    data['idle'] = process_readings(readings, False)
+    data['idle']['stats'] = process_readings(readings, False)
 
-    if models != None:
+    if options.models != None:
         data['virtual'] = process_readings(v_readings, True)
 
-    if models is None:
+    if options.models is None:
         with open(os.path.expanduser(options.joule), 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+
+    # idle
+    time.sleep(5)
 
     # start with the stints
     logging.info("running stints")
@@ -321,13 +299,26 @@ def main():
         dst.reset()
         
         # run stint
-        [ readings, v_readings ] = src.execute_stint(stint, tps)
+        src.configure_stint(stint, tps)
+
+        ml.reset_readings()
+        if options.models != None:
+            vm.reset_readings()
+        
+        src.start_stint()
+        time.sleep(stint['duration_s'])
+        src.stop_stint()
+        
+        readings = ml.get_readings()
+        if options.models != None:
+            v_readings = vm.get_readings()
 
         # compute statistics
         stint['stats'] = process_readings(readings)
 
         # compute statistics
-        stint['virtual'] = process_readings(v_readings, True)
+        if options.models != None:
+            stint['virtual'] = process_readings(v_readings, True)
 
         src_status = src.status()
         dst_status = dst.status()
@@ -355,18 +346,18 @@ def main():
         logging.info("actual goodput %s" % bps_to_human(gp))
         logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
 
-        if models is None:
+        if options.models is None:
             with open(os.path.expanduser(options.joule), 'w') as data_file:    
                 json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
         # sleep in order to let the network settle down
-        time.sleep(2)
+        time.sleep(5)
 
     # stopping modeller
     ml.shutdown()
         
     # stopping virtual modeller
-    if models != None:
+    if options.models != None:
         vm.shutdown()
 
 if __name__ == "__main__":

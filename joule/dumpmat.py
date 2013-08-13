@@ -77,7 +77,7 @@ def main():
         stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
         basename = os.path.splitext(os.path.basename(os.path.expanduser(options.joule)))[0]
         filename = os.path.expanduser(options.output + '/' + basename + '_%s.mat' % model)
-        scipy.io.savemat(filename, { 'DATA' : np.array(stints), 'IDLE' : data['idle']['median'] }, oned_as = 'column')
+        scipy.io.savemat(filename, { 'DATA' : np.array(stints), 'IDLE' : data['idle']['stats']['median'] }, oned_as = 'column')
 
 if __name__ == "__main__":
     main()

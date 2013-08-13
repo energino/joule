@@ -81,7 +81,7 @@ class Modeller(threading.Thread):
     def __init__(self, backend):
 
         super(Modeller, self).__init__()
-        logging.info("starting modeler (%s)" % backend.__class__.__name__)
+        logging.info("starting meter (%s)" % backend.__class__.__name__)
         self.stop_event = threading.Event()
         self.daemon = True
         self.readings = []
@@ -101,8 +101,9 @@ class Modeller(threading.Thread):
         while not self.stop_event.isSet():
             try:
                 self.readings.append(self.backend.fetch('power'))
-            except:
-                pass
+            except Exception, e:
+                self.readings.append[0.0]
+                logging.error(e)
     
 class Probe(object):
     
@@ -173,6 +174,7 @@ def process_readings(readings, virtual = False):
 
     median = np.median(readings)
     mean = np.mean(readings)
+
     ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
 
     if virtual:
@@ -252,14 +254,14 @@ def main():
         v_readings = vm.get_readings()
 
     # compute statistics
-    data['idle']['stats'] = process_readings(readings, False)
+    if options.models == None:
+        data['idle']['stats'] = process_readings(readings, False)
 
     if options.models != None:
-        data['virtual'] = process_readings(v_readings, True)
+        data['idle']['virtual'] = process_readings(v_readings, True)
 
-    if options.models is None:
-        with open(os.path.expanduser(options.joule), 'w') as data_file:    
-            json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+    with open(os.path.expanduser(options.joule), 'w') as data_file:    
+        json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
     # idle
     time.sleep(5)
@@ -314,7 +316,8 @@ def main():
             v_readings = vm.get_readings()
 
         # compute statistics
-        stint['stats'] = process_readings(readings)
+        if options.models == None:
+            stint['stats'] = process_readings(readings)
 
         # compute statistics
         if options.models != None:
@@ -342,13 +345,16 @@ def main():
         if client_count != 0:
             losses = float( client_count - server_count ) / client_count
         
+        stint['stats']['tp'] = tp
+        stint['stats']['gp'] = gp
+        stint['stats']['losses'] = losses
+
         logging.info("actual throughput %s" % bps_to_human(tp))
         logging.info("actual goodput %s" % bps_to_human(gp))
         logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
 
-        if options.models is None:
-            with open(os.path.expanduser(options.joule), 'w') as data_file:    
-                json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+        with open(os.path.expanduser(options.joule), 'w') as data_file:    
+            json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
         # sleep in order to let the network settle down
         time.sleep(5)

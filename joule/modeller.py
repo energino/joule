@@ -80,7 +80,7 @@ def main():
 
     pairs = conn.cursor().execute("select src, dst from data group by src, dst")
 
-    models = { 'gamma' : data['idle']['median'] }
+    models = { 'gamma' : data['idle']['stats']['median'] }
 
     for pair in pairs:
 

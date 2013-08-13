@@ -56,12 +56,18 @@ def main():
 
     conn = sqlite3.connect(':memory:')
     c = conn.cursor()
-    c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci)''')
+    c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci, virtual_median, virtual_mean, virtual_ci)''')
     conn.commit()
 
     for stint in data['stints']:
         row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean'], stint['stats']['ci']]
-        c.execute("""insert into data values (?,?,?,?,?,?,?,?,?)""", row)
+        
+        if 'virtual' in stint:
+            virtual_row = [ stint['virtual']['median'], stint['virtual']['mean'], stint['virtual']['ci'] ]
+        else:
+            virtual_row = [ 0.0, 0.0, 0.0 ]
+        
+        c.execute("""insert into data values (?,?,?,?,?,?,?,?,?,?,?,?)""", row + virtual_row)
         conn.commit()
 
     pairs =[]
@@ -74,7 +80,7 @@ def main():
             model = lookup_table[pair]
         else: 
             model = '%s_%s' % pair        
-        stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
+        stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci, virtual_median, virtual_mean, virtual_ci from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
         basename = os.path.splitext(os.path.basename(os.path.expanduser(options.joule)))[0]
         filename = os.path.expanduser(options.output + '/' + basename + '_%s.mat' % model)
         scipy.io.savemat(filename, { 'DATA' : np.array(stints), 'IDLE' : data['idle']['stats']['median'] }, oned_as = 'column')

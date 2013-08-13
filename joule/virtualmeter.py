@@ -89,7 +89,7 @@ class VirtualMeter(object):
         self.bins['TX'] = bins['TX'][:]
 
         readings = {}
-        readings['power'] = power_rx + self.models['gamma'] 
+        readings['power'] = power_tx + power_rx + self.models['gamma'] 
         readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
                 
         if field != None:
@@ -101,17 +101,15 @@ class VirtualMeter(object):
         power = 0.0
 
         diff = [ x[0] for x in (bins_curr - bins_prev).tolist() ]
-        
+
         alpha0 = self.models[model]['alpha0']
         alpha1 = self.models[model]['alpha1']
         x_max = self.models[model]['x_max']
         beta = self.models[model]['beta']
         gamma = self.models['gamma']
-        
-        if 'x_min' in self.models:
-            x_min = self.models['x_min']
-        else:
-            x_min = 0.1
+
+        # this should be generalized        
+        x_min = 0.06
 
         for i in range(0, len(diff)):
             if diff[i] == 0.0:

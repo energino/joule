@@ -47,7 +47,7 @@ import numpy as np
 
 from click import read_handler, write_handler
 from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
-from virtualmeter import VirtualMeter
+from virtualmeter import VirtualMeter, compute_power
 
 DEFAULT_JOULE = './joule.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
@@ -102,7 +102,7 @@ class Modeller(threading.Thread):
             try:
                 self.readings.append(self.backend.fetch('power'))
             except Exception, e:
-                self.readings.append[0.0]
+                self.readings.append(0.0)
                 logging.error(e)
     
 class Probe(object):
@@ -211,6 +211,8 @@ def main():
         with open(os.path.expanduser(options.models)) as data_file:    
             models = json.load(data_file)
 
+    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] } 
+
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
     else:
@@ -222,20 +224,13 @@ def main():
     logging.info("starting Joule Profiler")
 
     # initialize modeller
-    energino = PyEnergino(options.device, options.bps, options.interval)
-    ml = Modeller(energino)
+    if options.models is None:
+        ml = Modeller(PyEnergino(options.device, options.bps, options.interval))
+    else:
+        ml = Modeller(VirtualMeter(models, float(options.interval) / 1000))
 
     # starting modeller
     ml.start()
-
-    if options.models != None:
-        
-        # initialize virtual modeller
-        vmeter = VirtualMeter(models, float(options.interval) / 1000)
-        vm = Modeller(vmeter)
-        
-        # starting virtual modeller
-        vm.start()
 
     # initialize probe objects
     probeObjs = {}
@@ -246,19 +241,14 @@ def main():
     logging.info("evaluating idle power consumption")
     logging.info("idle time is %us" % data['idle']['duration_s'] )
     ml.reset_readings()
-    if options.models != None:
-        vm.reset_readings()
     time.sleep(data['idle']['duration_s'])
     readings = ml.get_readings()
-    if options.models != None:
-        v_readings = vm.get_readings()
 
     # compute statistics
-    if options.models == None:
+    if options.models is None:
         data['idle']['stats'] = process_readings(readings, False)
-
-    if options.models != None:
-        data['idle']['virtual'] = process_readings(v_readings, True)
+    else:
+        data['idle']['virtual'] = process_readings(readings, True)
 
     with open(os.path.expanduser(options.joule), 'w') as data_file:    
         json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
@@ -304,24 +294,27 @@ def main():
         src.configure_stint(stint, tps)
 
         ml.reset_readings()
-        if options.models != None:
-            vm.reset_readings()
-        
+       
         src.start_stint()
         time.sleep(stint['duration_s'])
         src.stop_stint()
         
         readings = ml.get_readings()
-        if options.models != None:
-            v_readings = vm.get_readings()
 
         # compute statistics
-        if options.models == None:
-            stint['stats'] = process_readings(readings)
-
-        # compute statistics
-        if options.models != None:
-            stint['virtual'] = process_readings(v_readings, True)
+        if options.models is None:
+            stint['stats'] = process_readings(readings, False)
+        else:
+            model = lookup_table[(stint['src'], stint['dst'])]
+            alpha0 = models[model]['alpha0']
+            alpha1 = models[model]['alpha1']
+            x_max = models[model]['x_max']
+            beta = models[model]['beta']
+            gamma = models['gamma']
+            x_min = 0.06
+            predicted = compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, stint['bitrate_mbps'], stint['packetsize_bytes'])
+            logging.info("[model] power consumption: %f" % predicted)
+            stint['virtual'] = process_readings(readings, True)
 
         src_status = src.status()
         dst_status = dst.status()
@@ -345,6 +338,9 @@ def main():
         if client_count != 0:
             losses = float( client_count - server_count ) / client_count
         
+        if not 'stats' in stint:
+            stint['stats'] = {}
+
         stint['stats']['tp'] = tp
         stint['stats']['gp'] = gp
         stint['stats']['losses'] = losses
@@ -362,9 +358,5 @@ def main():
     # stopping modeller
     ml.shutdown()
         
-    # stopping virtual modeller
-    if options.models != None:
-        vm.shutdown()
-
 if __name__ == "__main__":
     main()

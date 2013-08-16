@@ -137,7 +137,7 @@ class VirtualMeter(object):
         for a in A:
             if len(a) == 0:
                 continue
-            size = a[0] - 12 - 20 - 12
+            size = a[0]
             count = a[1]
             for i in range(0, len(self.packet_sizes[model])):
                 if size <= self.packet_sizes[model][i]:
@@ -150,8 +150,8 @@ def main():
     p = optparse.OptionParser()
 
     p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
+    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--log', '-l', dest="log")
     
     options, _ = p.parse_args()

@@ -44,6 +44,7 @@ import time
 import threading
 import math
 import numpy as np
+import scipy.io
 
 from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
 from virtualmeter import VirtualMeter
@@ -55,10 +56,11 @@ def main():
 
     p = optparse.OptionParser()
     p.add_option('--device', '-d', dest="device", default=DEFAULT_PORT)
-    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
     p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
+    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
+    p.add_option('--matlab', '-t', dest="matlab")
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
@@ -71,9 +73,11 @@ def main():
         logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
 
     energino = PyEnergino(options.device, options.bps, int(options.interval))
-    virtual = VirtualMeter(models, float(options.interval) / 1000)
+    virtual = VirtualMeter(models, 0)
 
     output_str = "%s [V] %s [A] %s [W] %s [samples] %s [window] %s [virtual] %s [error]"
+
+    readings_all = []
 
     while True:
         energino.ser.flushInput()
@@ -86,7 +90,11 @@ def main():
         except:
             logging.debug(output_str % tuple(["0.0"] * 7))
         else:
+            readings_all.append([ readings['power'], virtual_readings['power']])
             logging.info(output_str % (readings['voltage'], readings['current'], readings['power'], readings['samples'], readings['window'], virtual_readings['power'], virtual_readings['power'] - readings['power']))
+
+        if options.matlab != None:
+            scipy.io.savemat(options.matlab, { 'READINGS' : np.array(readings_all) }, oned_as = 'column')
 
 if __name__ == "__main__":
     main()

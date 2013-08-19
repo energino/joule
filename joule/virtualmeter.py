@@ -73,7 +73,7 @@ class VirtualMeter(object):
     def fetch(self, field = None):
 
         if self.interval > 0:
-	    time.sleep(self.interval)
+            time.sleep(self.interval)
 
         delta = time.time() - self.last
         self.last = time.time()
@@ -151,6 +151,7 @@ def main():
 
     p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
+    p.add_option('--matlab', '-t', dest="matlab")
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--log', '-l', dest="log")
     
@@ -167,6 +168,9 @@ def main():
     logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
     
     vm = VirtualMeter(models, float(options.interval) / 1000)
+
+    if options.matlab != None:
+        mat = []
     
     while True:
         try:
@@ -178,6 +182,9 @@ def main():
             logging.debug("0 [W]")
         else:
             logging.info("%f [W]" % readings['power'])
+
+        if options.matlab != None:
+            scipy.io.savemat(options.matlab, { 'READINGS' : np.array(mat) }, oned_as = 'column')
     
 if __name__ == "__main__":
     main()

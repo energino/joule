@@ -192,14 +192,11 @@ def main():
 
     p = optparse.OptionParser()
     p.add_option('--device', '-d', dest="device", default=DEFAULT_PORT)
-    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
-    p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
+    p.add_option('--bps', '-b', type="int", dest="bps", default=DEFAULT_PORT_SPEED)
+    p.add_option('--interval', '-i', type="int", dest="interval", default=DEFAULT_INTERVAL)
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
     p.add_option('--models', '-m', dest="models", default=None)
     p.add_option('--profile', '-p', dest="profile", default=DEFAULT_PROFILE)
-    p.add_option('--rate', '-r', dest="rate")
-    p.add_option('--size', '-s', dest="size")
-    p.add_option('--skip', '-k', action="store_true", dest="skip", default=False)    
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
@@ -227,7 +224,7 @@ def main():
     if options.models is None:
         ml = Modeller(PyEnergino(options.device, options.bps, options.interval))
     else:
-        ml = Modeller(VirtualMeter(models, float(options.interval) / 1000))
+        ml = Modeller(VirtualMeter(models, options.interval))
 
     # starting modeller
     ml.start()
@@ -263,22 +260,12 @@ def main():
 
         stint = data['stints'][i]
         
-        if options.rate != None and float(options.rate) != stint['bitrate_mbps']:
-            continue
-            
-        if options.size != None and int(options.size) != stint['packetsize_bytes']:
-            continue
-
         src = probeObjs[stint['src']]
         dst = probeObjs[stint['dst']]
 
         # process stint
         logging.info('-----------------------------------------------------')
         logging.info("running profile %u/%u, %s -> %s:%u" % (i+1, len(data['stints']), src.ip, dst.ip, dst.receiver_port))
-
-        if 'results' in stint and 'stats' in stint and options.skip:
-            logging.info("skipping stint")
-            continue
 
         tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']
         tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])

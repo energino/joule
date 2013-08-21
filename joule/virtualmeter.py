@@ -73,7 +73,7 @@ class VirtualMeter(object):
     def fetch(self, field = None):
 
         if self.interval > 0:
-            time.sleep(self.interval)
+            time.sleep(float(self.interval) / 1000)
 
         delta = time.time() - self.last
         self.last = time.time()

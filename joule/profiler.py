@@ -184,6 +184,86 @@ def process_readings(readings, virtual = False):
 
     return { 'ci' : ci, 'median' : median, 'mean' : mean }
 
+def run_stint(stint, src, dst, run, tot, ml, options):
+    
+    # process stint
+    logging.info('-----------------------------------------------------')
+    logging.info("running profile %u/%u, %s -> %s:%u" % (run, tot, src.ip, dst.ip, dst.receiver_port))
+
+    tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']
+    tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])
+    
+    logging.info("maximum transaction speed for this medium (%s) is %d TPS" % (options.profile, tps) )
+    logging.info("maximum theoretical goodput is %s" % bps_to_human(stint['packetsize_bytes'] * 8 * tps) )
+
+    # reset probes
+    src.reset()
+    dst.reset()
+    
+    # run stint
+    src.configure_stint(stint, tps)
+
+    ml.reset_readings()
+   
+    src.start_stint()
+    time.sleep(stint['duration_s'])
+    src.stop_stint()
+    
+    readings = ml.get_readings()
+
+    # compute statistics
+    if options.models is None:
+        stint['stats'] = process_readings(readings, False)
+    else:
+        stint['virtual'] = process_readings(readings, True)
+
+    src_status = src.status()
+    dst_status = dst.status()
+
+    client_count = src_status['client_count']
+    server_count = dst_status['server_count']
+    client_interval = src_status['client_interval']
+    server_interval = dst_status['server_interval']
+    
+    logging.info("client sent %u packets in %f s" % (client_count, client_interval))
+    logging.info("server received %u packets in %f s" % (server_count, server_interval))
+
+    tp = 0
+    if client_interval != 0:
+        tp = float(client_count * stint['packetsize_bytes'] * 8) / client_interval
+    gp = 0
+    if server_interval != 0:        
+        gp = float(server_count * stint['packetsize_bytes'] * 8) / server_interval
+        
+    losses = 0
+    if client_count != 0:
+        losses = float( client_count - server_count ) / client_count
+    
+    if not 'stats' in stint:
+        stint['stats'] = {}
+
+    stint['stats']['tp'] = tp
+    stint['stats']['gp'] = gp
+    stint['stats']['losses'] = losses
+
+    logging.info("actual throughput %s" % bps_to_human(tp))
+    logging.info("actual goodput %s" % bps_to_human(gp))
+    logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
+
+def run_idle_stint(stint, ml, options):
+
+    logging.info("evaluating idle power consumption")
+    logging.info("idle time is %us" % stint['duration_s'] )
+    ml.reset_readings()
+    time.sleep(stint['duration_s'])
+    readings = ml.get_readings()
+
+    # compute statistics
+    if options.models is None:
+        stint['stats'] = process_readings(readings, False)
+    else:
+        stint['virtual'] = process_readings(readings, True)
+                
 def sigint_handler(signal, frame):
     logging.info("Received SIGINT, terminating...")
     sys.exit(0)
@@ -208,8 +288,6 @@ def main():
         with open(os.path.expanduser(options.models)) as data_file:    
             models = json.load(data_file)
 
-    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] } 
-
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
     else:
@@ -230,23 +308,11 @@ def main():
     ml.start()
 
     # initialize probe objects
-    probeObjs = {}
-    for probe in data['probes']:
-        probeObjs[probe] = Probe(data['probes'][probe])
+    probes = { probe : Probe(data['probes'][probe]) for probe in data['probes'] }
 
     # evaluate idle power consumption
-    logging.info("evaluating idle power consumption")
-    logging.info("idle time is %us" % data['idle']['duration_s'] )
-    ml.reset_readings()
-    time.sleep(data['idle']['duration_s'])
-    readings = ml.get_readings()
-
-    # compute statistics
-    if options.models is None:
-        data['idle']['stats'] = process_readings(readings, False)
-    else:
-        data['idle']['virtual'] = process_readings(readings, True)
-
+    run_idle_stint(data['idle'])
+    
     with open(os.path.expanduser(options.joule), 'w') as data_file:    
         json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
 
@@ -260,81 +326,10 @@ def main():
 
         stint = data['stints'][i]
         
-        src = probeObjs[stint['src']]
-        dst = probeObjs[stint['dst']]
+        src = probes[stint['src']]
+        dst = probes[stint['dst']]
 
-        # process stint
-        logging.info('-----------------------------------------------------')
-        logging.info("running profile %u/%u, %s -> %s:%u" % (i+1, len(data['stints']), src.ip, dst.ip, dst.receiver_port))
-
-        tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']
-        tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])
-        
-        logging.info("maximum transaction speed for this medium (%s) is %d TPS" % (options.profile, tps) )
-        logging.info("maximum theoretical goodput is %s" % bps_to_human(stint['packetsize_bytes'] * 8 * tps) )
-
-        # reset probes
-        src.reset()
-        dst.reset()
-        
-        # run stint
-        src.configure_stint(stint, tps)
-
-        ml.reset_readings()
-       
-        src.start_stint()
-        time.sleep(stint['duration_s'])
-        src.stop_stint()
-        
-        readings = ml.get_readings()
-
-        # compute statistics
-        if options.models is None:
-            stint['stats'] = process_readings(readings, False)
-        else:
-            model = lookup_table[(stint['src'], stint['dst'])]
-            alpha0 = models[model]['alpha0']
-            alpha1 = models[model]['alpha1']
-            x_max = models[model]['x_max']
-            beta = models[model]['beta']
-            gamma = models['gamma']
-            x_min = 0.06
-            predicted = compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, stint['bitrate_mbps'], stint['packetsize_bytes'])
-            logging.info("[model] power consumption: %f" % predicted)
-            stint['virtual'] = process_readings(readings, True)
-
-        src_status = src.status()
-        dst_status = dst.status()
-
-        client_count = src_status['client_count']
-        server_count = dst_status['server_count']
-        client_interval = src_status['client_interval']
-        server_interval = dst_status['server_interval']
-        
-        logging.info("client sent %u packets in %f s" % (client_count, client_interval))
-        logging.info("server received %u packets in %f s" % (server_count, server_interval))
-
-        tp = 0
-        if client_interval != 0:
-            tp = float(client_count * stint['packetsize_bytes'] * 8) / client_interval
-        gp = 0
-        if server_interval != 0:        
-            gp = float(server_count * stint['packetsize_bytes'] * 8) / server_interval
-            
-        losses = 0
-        if client_count != 0:
-            losses = float( client_count - server_count ) / client_count
-        
-        if not 'stats' in stint:
-            stint['stats'] = {}
-
-        stint['stats']['tp'] = tp
-        stint['stats']['gp'] = gp
-        stint['stats']['losses'] = losses
-
-        logging.info("actual throughput %s" % bps_to_human(tp))
-        logging.info("actual goodput %s" % bps_to_human(gp))
-        logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
+        run_stint(stint, src, dst, i+1, len(data['stints']), ml, options)
 
         with open(os.path.expanduser(options.joule), 'w') as data_file:    
             json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))

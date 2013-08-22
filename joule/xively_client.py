@@ -48,7 +48,7 @@ def main():
 
     p = optparse.OptionParser()
     p.add_option('--uuid', '-u', dest="uuid", default="Energino")
-    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
+    p.add_option('--interval', '-i', dest="interval", type="int", default=DEFAULT_INTERVAL)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--config', '-c', dest="config", default=DEFAULT_CONFIG)
     p.add_option('--log', '-l', dest="log")
@@ -74,7 +74,7 @@ def main():
 
     global xively
 
-    backend = VirtualMeter(models, int(options.interval))
+    backend = VirtualMeter(models, options.interval)
 
     xively = XivelyDispatcher(options.uuid, options.config, backend, options.rapid)
     xively.add_stream("power", "derivedSI", "Watts", "W")

@@ -60,7 +60,7 @@ def main():
     p.add_option('--probeb', '-b', dest="probeb", default=DEFAULT_PROBE_B)
     p.add_option('--rates', '-r', dest="rates", default=DEFAULT_RATES)
     p.add_option('--sizes', '-s', dest="sizes", default=DEFAULT_SIZES)
-    p.add_option('--duration', '-d', dest="duration", default=DEFAULT_DURATION)
+    p.add_option('--duration', '-d', dest="duration", type="int", default=DEFAULT_DURATION)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
@@ -79,7 +79,7 @@ def main():
             stint = {
                 "bitrate_mbps": float(rate),
                 "dst": "A",
-                "duration_s": int(options.duration),
+                "duration_s": options.duration,
                 "packetsize_bytes": int(size),
                 "src": "B"
             }   
@@ -89,14 +89,14 @@ def main():
             stint = {
                 "bitrate_mbps": float(rate),
                 "dst": "B",
-                "duration_s": int(options.duration),
+                "duration_s": options.duration,
                 "packetsize_bytes": int(size),
                 "src": "A"
             }   
 
             joule['stints'].append(stint)
 
-    joule['idle'] = { "duration_s": int(options.duration) }
+    joule['idle'] = { "duration_s": options.duration }
     
     joule['probes'] = {
         "A": {

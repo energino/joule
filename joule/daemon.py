@@ -69,9 +69,9 @@ def main():
     p = optparse.OptionParser()
 
     p.add_option('--receiver_ip', '-d', dest="receiver", default=DEFAULT_RECEIVER_IP)
-    p.add_option('--receiver_port', '-r', dest="rport", default=DEFAULT_RECEIVER_PORT)
-    p.add_option('--sender_port', '-s', dest="sport", default=DEFAULT_SENDER_PORT)
-    p.add_option('--control', '-c', dest="control", default=DEFAULT_CONTROL)
+    p.add_option('--receiver_port', '-r', dest="rport", type="int", default=DEFAULT_RECEIVER_PORT)
+    p.add_option('--sender_port', '-s', dest="sport", type="int", default=DEFAULT_SENDER_PORT)
+    p.add_option('--control', '-c', dest="control", type="int", default=DEFAULT_CONTROL)
     p.add_option('--joule', '-j', dest="joule", default=None)
     p.add_option('--probe', '-p', dest="probe", default=None)
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
@@ -101,10 +101,10 @@ def main():
     else:
 
         receiver = options.receiver
-        rport = int(options.rport)
-        sport = int(options.sport)
-        rcontrol = int(options.control)
-        scontrol = int(options.control) + 1
+        rport = options.rport
+        sport = options.sport
+        rcontrol = options.control
+        scontrol = options.control + 1
 
     logging.info("receiver ip address: %s" % receiver)
     logging.info("receiver port: %s" % rport)

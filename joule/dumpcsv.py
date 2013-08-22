@@ -60,9 +60,9 @@ def main():
         print("# %s -> %s" % (data['probes'][entry[0]]['ip'], data['probes'][entry[1]]['ip']))
         print("# bitrate, packet length, packet loss, median power consumption, mean power consumption")
         if options.byrate:
-            print "\n".join([ "%f;%f;%f;%f;%f" % tuple(line) for line in sorted(pairs[entry], key=lambda d: (d[1], d[0]), reverse=False) ])
+            print("\n".join([ "%f;%f;%f;%f;%f" % tuple(line) for line in sorted(pairs[entry], key=lambda d: (d[1], d[0]), reverse=False) ]))
         else:
-            print "\n".join([ "%f;%f;%f;%f;%f" % tuple(line) for line in sorted(pairs[entry], key=lambda d: (d[0], d[1]), reverse=False) ])
+            print("\n".join([ "%f;%f;%f;%f;%f" % tuple(line) for line in sorted(pairs[entry], key=lambda d: (d[0], d[1]), reverse=False) ]))
 
 if __name__ == "__main__":
     main()

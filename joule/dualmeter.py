@@ -52,8 +52,8 @@ def main():
 
     p = optparse.OptionParser()
     p.add_option('--device', '-d', dest="device", default=DEFAULT_PORT)
-    p.add_option('--bps', '-b', dest="bps", default=DEFAULT_PORT_SPEED)
-    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
+    p.add_option('--bps', '-b', dest="bps", type="int", default=DEFAULT_PORT_SPEED)
+    p.add_option('--interval', '-i', dest="interval", type="int", default=DEFAULT_INTERVAL)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--matlab', '-t', dest="matlab")
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
@@ -68,7 +68,7 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
 
-    energino = PyEnergino(options.device, options.bps, int(options.interval))
+    energino = PyEnergino(options.device, options.bps, options.interval)
     virtual = VirtualMeter(models, 0)
 
     if options.matlab != None:

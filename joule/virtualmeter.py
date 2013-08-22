@@ -149,7 +149,7 @@ def main():
 
     p = optparse.OptionParser()
 
-    p.add_option('--interval', '-i', dest="interval", default=DEFAULT_INTERVAL)
+    p.add_option('--interval', '-i', dest="interval", type="int", default=DEFAULT_INTERVAL)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--matlab', '-t', dest="matlab")
     p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
@@ -167,7 +167,7 @@ def main():
     
     logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
     
-    vm = VirtualMeter(models, float(options.interval) / 1000)
+    vm = VirtualMeter(models, options.interval)
 
     if options.matlab != None:
         mat = []

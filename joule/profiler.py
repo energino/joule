@@ -47,7 +47,7 @@ import numpy as np
 
 from click import read_handler, write_handler
 from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
-from virtualmeter import VirtualMeter, compute_power
+from virtualmeter import VirtualMeter
 
 DEFAULT_JOULE = './joule.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'

@@ -311,7 +311,7 @@ def main():
     probes = { probe : Probe(data['probes'][probe]) for probe in data['probes'] }
 
     # evaluate idle power consumption
-    run_idle_stint(data['idle'])
+    run_idle_stint(data['idle'], ml, options)
     
     with open(os.path.expanduser(options.joule), 'w') as data_file:    
         json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))

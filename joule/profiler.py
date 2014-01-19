@@ -286,16 +286,8 @@ def process_readings(readings, virtual = False):
 
     return { 'ci' : ci, 'median' : median, 'mean' : mean }
 
-def run_stint(stint, src, dst, run, tot, ml, options):
+def run_stint(stint, src, dst, modeller, options):
     """ Run a stint. """
-
-    # process stint
-    logging.info('-----------------------------------------------------')
-    logging.info("running profile %u/%u, %s -> %s:%u", run,
-                                                       tot,
-                                                       src.address,
-                                                       dst.address,
-                                                       dst.receiver_port )
 
     tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']
     tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])
@@ -313,19 +305,20 @@ def run_stint(stint, src, dst, run, tot, ml, options):
     # run stint
     src.configure_stint(stint, tps)
 
-    ml.reset_readings()
+    modeller.reset_readings()
 
     src.start_stint()
     time.sleep(stint['duration_s'])
     src.stop_stint()
 
-    readings = ml.get_readings()
+def process_stint(stint, src, dst, modeller, options):
+    """ Process stint. """
 
     # compute statistics
     if options.models is None:
-        stint['stats'] = process_readings(readings, False)
+        stint['stats'] = process_readings(modeller.get_readings(), False)
     else:
-        stint['virtual'] = process_readings(readings, True)
+        stint['virtual'] = process_readings(modeller.get_readings(), True)
 
     src_status = src.status()
     dst_status = dst.status()
@@ -489,7 +482,18 @@ def main():
         src = probes[stint['src']]
         dst = probes[stint['dst']]
 
-        run_stint(stint, src, dst, i+1, len(data['stints']), modeller, options)
+        logging.info('-----------------------------------------------------')
+        logging.info("running profile %u/%u, %s -> %s:%u", i+1,
+                                                           len(data['stints']),
+                                                           src.address,
+                                                           dst.address,
+                                                           dst.receiver_port )
+
+        # run stint
+        run_stint(stint, src, dst, modeller, options)
+
+        # process stint
+        process_stint(stint, src, dst, modeller, options)
 
         with open(os.path.expanduser(options.joule), 'w') as data_file:
             json.dump(data,

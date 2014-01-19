@@ -54,12 +54,12 @@ def compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d):
     return alpha_d * x + beta[str(d)] + gamma
 
 class VirtualMeter(object):
-    
+
     def __init__(self, models, interval):
-        
+
         self.models = models
         self.interval = interval
-        
+
         self.packet_sizes = {}
         self.packet_sizes['RX'] = sorted([ int(x) for x in self.models['RX']['x_max'].keys() ], key=int)
         self.packet_sizes['TX'] = sorted([ int(x) for x in self.models['TX']['x_max'].keys() ], key=int)
@@ -67,9 +67,9 @@ class VirtualMeter(object):
         self.bins = {}
         self.bins['RX'] = self.generate_bins('RX')
         self.bins['TX'] = self.generate_bins('TX')
-        
+
         self.last = time.time()
-        
+
     def fetch(self, field = None):
 
         if self.interval > 0:
@@ -89,15 +89,15 @@ class VirtualMeter(object):
         self.bins['TX'] = bins['TX'][:]
 
         readings = {}
-        readings['power'] = power_tx + power_rx + self.models['gamma'] 
+        readings['power'] = power_tx + power_rx + self.models['gamma']
         readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                
+
         if field != None:
             return readings[field]
         return readings
-  
+
     def compute(self, bins_curr, bins_prev, model, delta):
-        
+
         power = 0.0
 
         diff = [ x[0] for x in (bins_curr - bins_prev).tolist() ]
@@ -108,7 +108,7 @@ class VirtualMeter(object):
         beta = self.models[model]['beta']
         gamma = self.models['gamma']
 
-        # this should be generalized        
+        # this should be generalized
         x_min = 0.06
 
         for i in range(0, len(diff)):
@@ -119,7 +119,7 @@ class VirtualMeter(object):
             p = compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d) - gamma
             power = power + p
             logging.debug("%u bytes, %u pkts, %f s -> %f [Mb/s] %f [W]" % (d, diff[i], delta, x, p))
-            
+
         return power
 
     def generate_bins(self, model):
@@ -144,7 +144,7 @@ class VirtualMeter(object):
                     bins[i] = bins[i] + count
                     break
         return bins
-                
+
 def main():
 
     p = optparse.OptionParser()
@@ -152,26 +152,26 @@ def main():
     p.add_option('--interval', '-i', dest="interval", type="int", default=DEFAULT_INTERVAL)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--matlab', '-t', dest="matlab")
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
+    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)
     p.add_option('--log', '-l', dest="log")
-    
+
     options, _ = p.parse_args()
 
-    with open(os.path.expanduser(options.models)) as data_file:    
+    with open(os.path.expanduser(options.models)) as data_file:
         models = json.load(data_file)
 
     if options.verbose:
         lvl = logging.DEBUG
     else:
         lvl = logging.INFO
-    
+
     logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
-    
+
     vm = VirtualMeter(models, options.interval)
 
     if options.matlab != None:
         mat = []
-    
+
     while True:
         try:
             readings = vm.fetch()
@@ -185,7 +185,7 @@ def main():
 
         if options.matlab != None:
             scipy.io.savemat(options.matlab, { 'READINGS' : np.array(mat) }, oned_as = 'column')
-    
+
 if __name__ == "__main__":
     main()
-    
+

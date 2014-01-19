@@ -45,12 +45,12 @@ import threading
 import math
 import numpy as np
 
-from joule.click import read_handler, write_handler
-from joule.energino import PyEnergino
-from joule.energino import DEFAULT_PORT
-from joule.energino import DEFAULT_PORT_SPEED
-from joule.energino import DEFAULT_INTERVAL
-from joule.virtualmeter import VirtualMeter
+from click import read_handler, write_handler
+from energino import PyEnergino
+from energino import DEFAULT_PORT
+from energino import DEFAULT_PORT_SPEED
+from energino import DEFAULT_INTERVAL
+from virtualmeter import VirtualMeter
 
 DEFAULT_JOULE = './joule.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
@@ -119,11 +119,11 @@ class Modeller(threading.Thread):
         while not self.stop_event.isSet():
             try:
                 self.readings.append(self.backend.fetch('power'))
-            except Exception as ex:
+            except ValueError as ex:
                 self.readings.append(0.0)
                 logging.exception(ex)
 
-def __hp(handler):
+def hlog(handler):
     """ Log a call to an handler. """
 
     if handler[0] == "200":
@@ -146,9 +146,7 @@ class Probe(object):
         self.receiver_control = probe['receiver_control']
         self.receiver_port = probe['receiver_port']
         self._packet_rate = 10
-        self._packets_nb = 1000
         self._packetsize_bytes = 64
-        self._duration = 10
         self._limit = 0
         self.reset()
 
@@ -158,36 +156,34 @@ class Probe(object):
         logging.info('resetting click tx daemon (%s:%s)', self.address,
                                                           self.sender_control)
 
-        __hp( write_handler(self.address,
+        hlog( write_handler(self.address,
                             self.sender_control,
                            'src.active false') )
 
-        __hp( write_handler(self.address,
+        hlog( write_handler(self.address,
                             self.sender_control,
                             'src.reset') )
 
-        __hp( write_handler(self.address,
+        hlog( write_handler(self.address,
                             self.sender_control,
                             'counter_client.reset') )
 
-        __hp( write_handler(self.address,
+        hlog( write_handler(self.address,
                             self.sender_control,
                             'tr_client.reset') )
 
         logging.info('resetting click rx daemon (%s:%s)', self.address,
                                                           self.sender_control)
 
-        __hp( write_handler(self.address,
+        hlog( write_handler(self.address,
                             self.receiver_control,
                             'counter_server.reset'))
 
-        __hp( write_handler(self.address,
+        hlog( write_handler(self.address,
                             self.receiver_control, 'tr_server.reset'))
 
         self._packet_rate = 10
-        self._packets_nb = 1000
         self._packetsize_bytes = 64
-        self._duration = 10
 
     def status(self):
         """ Fetch probe status. """
@@ -195,26 +191,26 @@ class Probe(object):
         logging.info('fetching click daemon status (%s)', self.address)
         status = {}
 
-        client_count = __hp(read_handler(self.address,
+        client_count = hlog(read_handler(self.address,
                                          self.sender_control,
                                         'counter_client.count'))
 
         status['client_count'] = int(client_count[2])
 
-        client_interval = __hp(read_handler(self.address,
+        client_interval = hlog(read_handler(self.address,
                                             self.sender_control,
                                             'tr_client.interval'))
 
         status['client_interval'] = float(client_interval[2])
 
 
-        server_count = __hp(read_handler(self.address,
+        server_count = hlog(read_handler(self.address,
                                          self.receiver_control,
                                         'counter_server.count'))
 
         status['server_count'] = int(server_count[2])
 
-        server_interval = __hp(read_handler(self.address,
+        server_interval = hlog(read_handler(self.address,
                                             self.receiver_control,
                                             'tr_server.interval'))
 
@@ -227,32 +223,33 @@ class Probe(object):
         rate = float(stint['bitrate_mbps'] * 1000000)
         size = float(stint['packetsize_bytes'] * 8)
 
+        duration = stint['duration_s']
+
         self._packet_rate = int( rate / size )
         self._packetsize_bytes = stint['packetsize_bytes']
-        self._duration = stint['duration_s']
-        self._limit = self._packet_rate * self._duration
+        self._limit = self._packet_rate * duration
 
         bps = bps_to_human(stint['bitrate_mbps'] * 1000000)
 
         logging.info("will send a total of %u packets", self._limit )
         logging.info("payload length is %u bytes", self._packetsize_bytes )
         logging.info("transmission rate set to %u pkt/s", self._packet_rate )
-        logging.info("trasmitting time is %us", self._duration )
+        logging.info("trasmitting time is %us", duration )
         logging.info("target bitrate is %s", bps)
 
-        __hp(write_handler(self.address,
+        hlog(write_handler(self.address,
                            self.sender_control,
                            'src.length %u' % self._packetsize_bytes))
 
-        __hp(write_handler(self.address,
+        hlog(write_handler(self.address,
                            self.sender_control,
                            'src.rate %u' % self._packet_rate))
 
-        __hp(write_handler(self.address,
+        hlog(write_handler(self.address,
                            self.sender_control,
                            'src.limit %u' % self._limit))
 
-        __hp(write_handler(self.address,
+        hlog(write_handler(self.address,
                            self.sender_control,
                            'sha.rate %u' % tps))
 
@@ -260,7 +257,7 @@ class Probe(object):
         """ Start stint. """
 
         logging.info("starting probe (%s)", self.address)
-        __hp(write_handler(self.address,
+        hlog(write_handler(self.address,
                            self.sender_control,
                            'src.active true'))
 
@@ -268,7 +265,7 @@ class Probe(object):
         """ Stop stint. """
 
         logging.info("stopping probe (%s)", self.address)
-        __hp(write_handler(self.address,
+        hlog(write_handler(self.address,
                            self.sender_control,
                            'src.active false'))
 
@@ -296,8 +293,8 @@ def run_stint(stint, src, dst, run, tot, ml, options):
     logging.info('-----------------------------------------------------')
     logging.info("running profile %u/%u, %s -> %s:%u", run,
                                                        tot,
-                                                       src.ip,
-                                                       dst.ip,
+                                                       src.address,
+                                                       dst.address,
                                                        dst.receiver_port )
 
     tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']

@@ -26,23 +26,26 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-This module handles the communications ControlSocket element. It supports basic
-READ and WRITE handler. It does NOT support multiple read/write statement. 
+Handle the communications with the click ControlSocket element. It supports
+basic READ and WRITE handlers. It does NOT support multiple read/write
+statements.
 """
 
 import socket
 
-def _handler(ip, port, rw, handler):
+def _handler(address, port, read_write, handler):
+    """ Connect to the ControlSocket element and call 'handler'. """
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((ip, port))
-    s.send("%s %s\nQUIT\n" % (rw, handler))
+    ctrl = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ctrl.connect((address, port))
+    ctrl.send("%s %s\nQUIT\n" % (read_write, handler))
 
     buf = ''
 
     while True:
-        data = s.recv(1024)
-        if not data: break
+        data = ctrl.recv(1024)
+        if not data:
+            break
         buf += data
 
     if not buf.startswith("Click::ControlSocket/1.3"):
@@ -52,7 +55,7 @@ def _handler(ip, port, rw, handler):
 
     if buf[0:3] != "200":
         return [ buf[0:3], buf[4:buf.find('\r\n')], '' ]
-  
+
     data = buf[buf.find('\r\n')+2:]
 
     if not data.startswith("DATA"):
@@ -64,9 +67,12 @@ def _handler(ip, port, rw, handler):
 
     return [ buf[0:3], buf[4:buf.find('\r\n')], data[0:length] ]
 
-def read_handler(ip, port, handler):
-    return _handler(ip, port, 'READ', handler)
+def read_handler(address, port, handler):
+    """ Connect to the ControlSocket element and read 'handler'. """
 
-def write_handler(ip, port, handler):
-    return _handler(ip, port, 'WRITE', handler)
+    return _handler(address, port, 'READ', handler)
 
+def write_handler(address, port, handler):
+    """ Connect to the ControlSocket element and write 'handler'. """
+
+    return _handler(address, port, 'WRITE', handler)

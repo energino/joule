@@ -27,15 +27,15 @@
 
 """
 The Joule Modeller. The Modeller takes as input a Joule descriptor saved by
-the Joule profiler and a JSON document defining the models to be generated 
-and computes the parameters that produce the best fitting between empirical 
+the Joule profiler and a JSON document defining the models to be generated
+and computes the parameters that produce the best fitting between empirical
 data and models.
 """
 
 import os
 import json
 import optparse
-import logging 
+import logging
 import sqlite3
 import numpy as np
 from scipy.optimize import curve_fit
@@ -49,11 +49,11 @@ def main():
     p = optparse.OptionParser()
     p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
+    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
-    with open(os.path.expanduser(options.joule)) as data_file:    
+    with open(os.path.expanduser(options.joule)) as data_file:
         data = json.load(data_file)
 
     if options.verbose:
@@ -64,7 +64,7 @@ def main():
     logging.info("starting eJOULE modeller")
     logging.info("importing data into db")
 
-    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] } 
+    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] }
 
     conn = sqlite3.connect(':memory:')
     c = conn.cursor()
@@ -86,94 +86,94 @@ def main():
 
         if pair in lookup_table:
             model = lookup_table[pair]
-        else: 
+        else:
             model = '%s -> %s' % pair
-            
+
         models[model] = {}
         models[model]['x_max'] = {}
 
-        sql = """SELECT MAX(goodput_mbps), packetsize_bytes 
-                 FROM data where src = \"%s\" and dst = \"%s\" 
+        sql = """SELECT MAX(goodput_mbps), packetsize_bytes
+                 FROM data where src = \"%s\" and dst = \"%s\"
                  GROUP BY packetsize_bytes""" % (pair)
 
         xmaxs = conn.cursor().execute(sql)
-        
+
         for xmax in xmaxs:
             models[model]['x_max'][xmax[1]] = xmax[0]
 
         slopes = []
-        
-        sql = """SELECT packetsize_bytes 
-                 FROM DATA 
-                 WHERE src = \"%s\" AND dst = \"%s\" 
-                 GROUP BY packetsize_bytes 
-                 ORDER BY packetsize_bytes ASC""" % pair 
-        
+
+        sql = """SELECT packetsize_bytes
+                 FROM DATA
+                 WHERE src = \"%s\" AND dst = \"%s\"
+                 GROUP BY packetsize_bytes
+                 ORDER BY packetsize_bytes ASC""" % pair
+
         sizes = conn.cursor().execute(sql)
-        
+
         models[model]['beta'] = {}
-        
+
         for size in sizes:
 
             x_max = models[model]['x_max'][size[0]]
 
-            sql = """SELECT bitrate_mbps, median 
-                     FROM DATA 
+            sql = """SELECT bitrate_mbps, median
+                     FROM DATA
                      WHERE bitrate_mbps < %f AND packetsize_bytes = %s AND src = \"%s\" AND dst = \"%s\"
-                     ORDER BY bitrate_mbps""" % (tuple([ x_max ]) + size + pair) 
+                     ORDER BY bitrate_mbps""" % (tuple([ x_max ]) + size + pair)
 
             rates = conn.cursor().execute(sql).fetchall()
-            
+
             slopes.append( [ size[0] , (rates[len(rates) - 1][1] - rates[0][1]) / (rates[len(rates) - 1][0] - rates[0][0]) ] )
-            
+
         A = np.array(slopes)
-        
+
         popt, _ = curve_fit(lambda x, a0, a1: a0 * (1 + a1 / x), A[:,0], A[:,1])
 
         models[model]['alpha0'] = popt[0]
         models[model]['alpha1'] = popt[1]
-        
-        if 'TX' in models:    
+
+        if 'TX' in models:
             models['TX']['alpha0'] = 0.0065
             models['TX']['alpha1'] = 966.8018
-        
-        if 'RX' in models:    
+
+        if 'RX' in models:
             models['RX']['alpha0'] = 0.002565092236542
             models['RX']['alpha1'] = 1749.155415849026
 
-        sql = """SELECT packetsize_bytes 
-                 FROM DATA 
-                 WHERE src = \"%s\" AND dst = \"%s\" 
-                 GROUP BY packetsize_bytes 
-                 ORDER BY packetsize_bytes ASC""" % pair 
-        
+        sql = """SELECT packetsize_bytes
+                 FROM DATA
+                 WHERE src = \"%s\" AND dst = \"%s\"
+                 GROUP BY packetsize_bytes
+                 ORDER BY packetsize_bytes ASC""" % pair
+
         sizes = conn.cursor().execute(sql)
-        
+
         models[model]['beta'] = {}
-        
+
         for size in sizes:
-            
-            sql = """SELECT bitrate_mbps, packetsize_bytes, median 
-                     FROM DATA 
-                     WHERE packetsize_bytes = %s AND src = \"%s\" AND dst = \"%s\"""" % (size + pair) 
+
+            sql = """SELECT bitrate_mbps, packetsize_bytes, median
+                     FROM DATA
+                     WHERE packetsize_bytes = %s AND src = \"%s\" AND dst = \"%s\"""" % (size + pair)
 
             rates = conn.cursor().execute(sql)
-            
+
             beta = []
-            
+
             for rate in rates:
-                
+
                 x = rate[0]
                 d = rate[1]
-                
+
                 if x > models[model]['x_max'][d]:
                     x = models[model]['x_max'][d]
-                
+
                 beta.append(rate[2] - ( models[model]['alpha0'] * ( 1 + models[model]['alpha1'] / d) * x + models['gamma'] ))
 
             models[model]['beta'][size[0]] = np.mean(beta)
-        
-    with open(os.path.expanduser(options.models), 'w') as data_file:    
+
+    with open(os.path.expanduser(options.models), 'w') as data_file:
         json.dump(models, data_file, indent=4, separators=(',', ': '), sort_keys=True)
 
     logging.info("models saved to %s" % os.path.expanduser(options.models))

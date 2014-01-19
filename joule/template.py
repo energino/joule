@@ -27,62 +27,93 @@
 
 """
 
-The Joule Template. It generate a Joule descriptor to be used with the Joule 
-Daemon(s) and with the Joule Profiler. The generated descriptor defines two
-probes and a list of rates and packet sizes. Stints are defined as all the 
-possible permutations between the rates list and the packets sizes list. It
-is possible to define also the duration of each stint. By default the 
-descriptor is ~/joule.json. The default behavior is the following:
+The Joule Template generator.
 
-template -a 127.0.0.1 -b 127.0.0.1 -r "0.1 0.5 1 2 5 10 15 20 25 30 35 40" -s "32 64 128 256 384 512 640 768 1024 1280 1460 1534 1788 2048" -d 30
+It generates a Joule descriptor to be used with the Joule Daemon(s) and with
+the Joule Profiler. The generated descriptor defines two
+probes and a list of rates and packet sizes. Stints are defined as all the
+possible permutations between the rates list and the packets sizes list. It
+is possible to define also the duration of each stint. By default the
+descriptor is ~/joule.json.
+
+Command Line Arguments:
+
+  --joule, -j:      output joule descriptor, e.g. ~/joule.json
+  --probea, -a:     probe A's IP Address, e.g. 192.168.1.1
+  --probeb, -b:     probe B's IP Address, e.g. 192.168.1.2
+  --rates, -r:      list of transmission rates, e.g. "0.1 0.5 1"
+  --sizes, -s:      list probe sizes in bytes (UDP payload), e.g. "64 128, 256"
+  --duration, -d:   probe duration in seconds, e.g. 30
+
+The default behavior is the following:
+
+template -j ./joule.json
+         -a 127.0.0.1 \
+         -b 127.0.0.1 \
+         -r "0.1 0.5 1 2 5 10 15 20 25 30 35 40" \
+         -s "32 64 128 256 384 512 640 768 1024 1280 1460 1534 1788 2048" \
+         -d 30
 
 """
 
 import os
 import json
 import optparse
-import logging 
+import logging
 
 DEFAULT_PROBE_A = "127.0.0.1"
 DEFAULT_PROBE_B = "127.0.0.1"
 DEFAULT_RATES = "0.1 0.5 1 2 5 10 15 20 25 30 35 40"
-DEFAULT_SIZES = "32 64 128 256 384 512 640 768 1024 1280 1460 1534 1788 2048"
+DEFAULT_SIZES = "64 128 256 384 512 640 768 1024 1280 1460 1534 1788 2048"
 DEFAULT_DURATION = 30
 
 DEFAULT_JOULE = './joule.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 
 def main():
+    """ Launcher method. """
 
-    p = optparse.OptionParser()
-    p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
-    p.add_option('--probea', '-a', dest="probea", default=DEFAULT_PROBE_A)
-    p.add_option('--probeb', '-b', dest="probeb", default=DEFAULT_PROBE_B)
-    p.add_option('--rates', '-r', dest="rates", default=DEFAULT_RATES)
-    p.add_option('--sizes', '-s', dest="sizes", default=DEFAULT_SIZES)
-    p.add_option('--duration', '-d', dest="duration", type="int", default=DEFAULT_DURATION)
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
-    p.add_option('--log', '-l', dest="log")
-    options, _ = p.parse_args()
+    parser = optparse.OptionParser()
+    parser.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
+    parser.add_option('--probea', '-a', dest="probea", default=DEFAULT_PROBE_A)
+    parser.add_option('--probeb', '-b', dest="probeb", default=DEFAULT_PROBE_B)
+    parser.add_option('--rates', '-r', dest="rates", default=DEFAULT_RATES)
+    parser.add_option('--sizes', '-s', dest="sizes", default=DEFAULT_SIZES)
+    parser.add_option('--duration', '-d',
+                      dest="duration",
+                      type="int",
+                      default=DEFAULT_DURATION)
+    parser.add_option('--verbose', '-v',
+                      action="store_true",
+                      dest="verbose",
+                      default=False)
+    parser.add_option('--log', '-l', dest="log")
+    options, _ = parser.parse_args()
 
     if options.verbose:
-        logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.DEBUG,
+                            format=LOG_FORMAT,
+                            filename=options.log,
+                            filemode='w')
     else:
-        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.INFO,
+                            format=LOG_FORMAT,
+                            filename=options.log,
+                            filemode='w')
 
     joule = { 'probes' : {}, 'models' : {}, 'stints' : [] }
 
     for rate in options.rates.split(" "):
-        
+
         for size in options.sizes.split(" "):
-            
+
             stint = {
                 "bitrate_mbps": float(rate),
                 "dst": "A",
                 "duration_s": options.duration,
                 "packetsize_bytes": int(size),
                 "src": "B"
-            }   
+            }
 
             joule['stints'].append(stint)
 
@@ -92,12 +123,12 @@ def main():
                 "duration_s": options.duration,
                 "packetsize_bytes": int(size),
                 "src": "A"
-            }   
+            }
 
             joule['stints'].append(stint)
 
     joule['idle'] = { "duration_s": options.duration }
-    
+
     joule['probes'] = {
         "A": {
             "ip": options.probea,
@@ -117,7 +148,7 @@ def main():
         }
     }
 
-    joule['models'] = { 
+    joule['models'] = {
         "TX": {
             "src": "A",
             "dst": "B"
@@ -127,9 +158,10 @@ def main():
             "dst": "A"
         }
     }
-    
-    with open(os.path.expanduser(options.joule), 'w') as data_file:    
-        json.dump(joule, data_file, sort_keys=True, indent=4, separators=(',', ': '))
-            
+
+    with open(os.path.expanduser(options.joule), 'w') as data_file:
+        json.dump(joule, data_file, sort_keys=True, indent=4,
+                  separators=(',', ': '))
+
 if __name__ == "__main__":
     main()

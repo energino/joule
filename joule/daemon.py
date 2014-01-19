@@ -26,10 +26,10 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-The Joule Daemon. At least two daemons should be configured on a network. 
-Daemons are controller by Joule Profiler which can trigger different traffic 
+The Joule Daemon. At least two daemons should be configured on a network.
+Daemons are controller by Joule Profiler which can trigger different traffic
 generation patterns. At the moment only UDP CBR flows are supported. Daemons
-can be started using CLI options (not recommended) or by passing a Joule 
+can be started using CLI options (not recommended) or by passing a Joule
 descriptor file generated with the joule-template command and by specifying
 the probe id.
 """
@@ -37,12 +37,28 @@ the probe id.
 import os
 import json
 import optparse
-import logging 
+import logging
 import threading
 import subprocess
 
-CLICK_SENDER = "src :: RatedSource(ACTIVE false) -> counter_client :: Counter() -> tr_client :: TimeRange() -> Queue(10) -> sha :: Shaper(RATE 0) -> Socket(UDP, %s, %u); ControlSocket(TCP, %u);"
-CLICK_RECEIVER = "Socket(UDP, 0.0.0.0, %u) -> counter_server :: Counter() -> tr_server :: TimeRange() -> Discard(); ControlSocket(TCP, %u);" 
+CLICK_SENDER = """
+src :: RatedSource(ACTIVE false)
+  -> counter_client :: Counter()
+  -> tr_client :: TimeRange()
+  -> Queue(10)
+  -> sha :: Shaper(RATE 0)
+  -> Socket(UDP, %s, %u);
+
+ControlSocket(TCP, %u);"""
+
+CLICK_RECEIVER = """
+Socket(UDP, 0.0.0.0, %u)
+  -> counter_server :: Counter()
+  -> tr_server :: TimeRange()
+  -> Discard();
+
+ControlSocket(TCP, %u);"""
+
 DEFAULT_RECEIVER_IP = "172.16.0.172"
 DEFAULT_RECEIVER_PORT = 9998
 DEFAULT_SENDER_PORT = 9999
@@ -51,45 +67,89 @@ DEFAULT_CONTROL = 7777
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 
 class ClickDaemon(threading.Thread):
+    """ ClickDaemin class. """
+
     def __init__(self, script, mode):
         super(ClickDaemon, self).__init__()
         logging.debug(script)
         self.script = "/usr/local/bin/click -e \"%s\"" % script
         self.mode = mode
+
     def run(self):
-        logging.info("starting click process (%s)" % self.mode)
-        p = subprocess.Popen(self.script, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        for line in iter(p.stdout.readline, ""):
+
+        logging.info("starting click process (%s)", self.mode)
+
+        click = subprocess.Popen(self.script,
+                                 shell=True,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
+
+        for line in iter(click.stdout.readline, ""):
             logging.debug(line.replace("\n", ""))
-        retval = p.wait()
-        logging.info("click %s process terminated with code %u" % (self.mode, retval))
+
+        retval = click.wait()
+
+        logging.info("click %s process terminated with code %u", self.mode,
+                                                                 retval)
 
 def main():
+    """ Launcher method. """
 
-    p = optparse.OptionParser()
+    parser = optparse.OptionParser()
 
-    p.add_option('--receiver_ip', '-d', dest="receiver", default=DEFAULT_RECEIVER_IP)
-    p.add_option('--receiver_port', '-r', dest="rport", type="int", default=DEFAULT_RECEIVER_PORT)
-    p.add_option('--sender_port', '-s', dest="sport", type="int", default=DEFAULT_SENDER_PORT)
-    p.add_option('--control', '-c', dest="control", type="int", default=DEFAULT_CONTROL)
-    p.add_option('--joule', '-j', dest="joule", default=None)
-    p.add_option('--probe', '-p', dest="probe", default=None)
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
-    p.add_option('--log', '-l', dest="log")
-    options, _ = p.parse_args()
-   
+    parser.add_option('--receiver_ip', '-d',
+                      dest="receiver",
+                      default=DEFAULT_RECEIVER_IP)
+
+    parser.add_option('--receiver_port', '-r',
+                      dest="rport",
+                      type="int",
+                      default=DEFAULT_RECEIVER_PORT)
+
+    parser.add_option('--sender_port', '-s',
+                      dest="sport",
+                      type="int",
+                      default=DEFAULT_SENDER_PORT)
+
+    parser.add_option('--control', '-c',
+                      dest="control",
+                      type="int",
+                      default=DEFAULT_CONTROL)
+
+    parser.add_option('--joule', '-j',
+                      dest="joule",
+                      default=None)
+
+    parser.add_option('--probe', '-p',
+                      dest="probe",
+                      default=None)
+
+    parser.add_option('--verbose', '-v',
+                      action="store_true",
+                      dest="verbose",
+                      default=False)
+
+    parser.add_option('--log', '-l', dest="log")
+    options, _ = parser.parse_args()
+
     if options.verbose:
-        logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.DEBUG,
+                            format=LOG_FORMAT,
+                            filename=options.log,
+                            filemode='w')
     else:
-        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.INFO,
+                            format=LOG_FORMAT,
+                            filename=options.log,
+                            filemode='w')
 
     logging.info("starting eJOULE daemon")
 
     if options.joule != None and options.probe != None:
-        
-        logging.info("using probe profile %s" % options.probe)
-    
-        with open(os.path.expanduser(options.joule)) as data_file:    
+
+        logging.info("using probe profile %s", options.probe)
+
+        with open(os.path.expanduser(options.joule)) as data_file:
             joule = json.load(data_file)
 
         receiver = joule['probes'][options.probe]['receiver']
@@ -106,18 +166,17 @@ def main():
         rcontrol = options.control
         scontrol = options.control + 1
 
-    logging.info("receiver ip address: %s" % receiver)
-    logging.info("receiver port: %s" % rport)
-    logging.info("sender port: %s" % sport)
-    logging.info("receiver control port: %u" % rcontrol)
-    logging.info("sender control port: %u" % scontrol)
+    logging.info("receiver ip address: %s", receiver)
+    logging.info("receiver port: %s", rport)
+    logging.info("sender port: %s", sport)
+    logging.info("receiver control port: %u", rcontrol)
+    logging.info("sender control port: %u", scontrol)
 
     server = ClickDaemon(CLICK_RECEIVER % (rport, rcontrol), "receiver")
     server.start()
 
     client = ClickDaemon(CLICK_SENDER % (receiver, sport, scontrol), "sender")
     client.start()
-        
+
 if __name__ == "__main__":
     main()
-    

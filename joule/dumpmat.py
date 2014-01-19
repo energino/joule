@@ -26,8 +26,8 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-Joule Dump Mat The dumpmat command saves the content of the Joule descriptor and
-the Joule model file in Matlab format. The Matfile
+Joule Dump Mat The dumpmat command saves the content of the Joule descriptor
+and the Joule model file in Matlab format. The Matfile
 """
 
 import os
@@ -49,10 +49,10 @@ def main():
     options, _ = p.parse_args()
 
     # load joule descriptor
-    with open(os.path.expanduser(options.joule)) as data_file:    
+    with open(os.path.expanduser(options.joule)) as data_file:
         data = json.load(data_file)
 
-    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] } 
+    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] }
 
     conn = sqlite3.connect(':memory:')
     c = conn.cursor()
@@ -61,12 +61,12 @@ def main():
 
     for stint in data['stints']:
         row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean'], stint['stats']['ci']]
-        
+
         if 'virtual' in stint:
             virtual_row = [ stint['virtual']['median'], stint['virtual']['mean'], stint['virtual']['ci'] ]
         else:
             virtual_row = [ 0.0, 0.0, 0.0 ]
-        
+
         c.execute("""insert into data values (?,?,?,?,?,?,?,?,?,?,?,?)""", row + virtual_row)
         conn.commit()
 
@@ -78,8 +78,8 @@ def main():
     for pair in pairs:
         if pair in lookup_table:
             model = lookup_table[pair]
-        else: 
-            model = '%s_%s' % pair        
+        else:
+            model = '%s_%s' % pair
         stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci, virtual_median, virtual_mean, virtual_ci from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
         basename = os.path.splitext(os.path.basename(os.path.expanduser(options.joule)))[0]
         filename = os.path.expanduser(options.output + '/' + basename + '_%s.mat' % model)

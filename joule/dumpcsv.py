@@ -39,30 +39,59 @@ import optparse
 DEFAULT_JOULE = './joule.json'
 
 def main():
+    """ Launcher method. """
 
-    p = optparse.OptionParser()
-    p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
-    p.add_option('--byrate', '-r', action="store_true", dest="byrate", default=False)    
-    options, _ = p.parse_args()
+    parser = optparse.OptionParser()
 
-    with open(os.path.expanduser(options.joule)) as data_file:    
+    parser.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
+    parser.add_option('--byrate', '-r',
+                      action="store_true",
+                      dest="byrate",
+                      default=False)
+
+    options, _ = parser.parse_args()
+
+    with open(os.path.expanduser(options.joule)) as data_file:
         data = json.load(data_file)
 
     pairs = {}
-    
+
     for stint in data['stints']:
+
         probe_ids = ( stint['src'], stint['dst'] )
+
         if not probe_ids in pairs:
             pairs[probe_ids] = []
-        pairs[probe_ids].append([ stint['bitrate_mbps'], stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']])
+
+        run = [ stint['bitrate_mbps'],
+                stint['packetsize_bytes'],
+                stint['stats']['losses'],
+                stint['stats']['median'],
+                stint['stats']['mean'] ]
+
+        pairs[probe_ids].append(run)
 
     for entry in pairs:
-        print("# %s -> %s" % (data['probes'][entry[0]]['ip'], data['probes'][entry[1]]['ip']))
-        print("# bitrate, packet length, packet loss, median power consumption, mean power consumption")
+
+        print("# %s -> %s" % ( data['probes'][entry[0]]['ip'],
+                               data['probes'][entry[1]]['ip']))
+
+        print("# bitrate, length, loss, median power, mean power")
+
         if options.byrate:
-            print("\n".join([ "%f;%f;%f;%f;%f" % tuple(line) for line in sorted(pairs[entry], key=lambda d: (d[1], d[0]), reverse=False) ]))
+
+            pairs = sorted(pairs[entry],
+                           key=lambda d: (d[1], d[0]),
+                           reverse=False)
+
         else:
-            print("\n".join([ "%f;%f;%f;%f;%f" % tuple(line) for line in sorted(pairs[entry], key=lambda d: (d[0], d[1]), reverse=False) ]))
+
+            pairs = sorted(pairs[entry],
+                           key=lambda d: (d[0], d[1]),
+                           reverse=False)
+
+        pairs_str = [ "%f;%f;%f;%f;%f" % tuple(line) for line in pairs ]
+        print("\n".join(pairs_str))
 
 if __name__ == "__main__":
     main()

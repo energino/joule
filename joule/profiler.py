@@ -45,14 +45,19 @@ import threading
 import math
 import numpy as np
 
-from click import read_handler, write_handler
-from energino import PyEnergino, DEFAULT_PORT, DEFAULT_PORT_SPEED, DEFAULT_INTERVAL
-from virtualmeter import VirtualMeter
+from joule.click import read_handler, write_handler
+from joule.energino import PyEnergino
+from joule.energino import DEFAULT_PORT
+from joule.energino import DEFAULT_PORT_SPEED
+from joule.energino import DEFAULT_INTERVAL
+from joule.virtualmeter import VirtualMeter
 
 DEFAULT_JOULE = './joule.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 
 def bps_to_human(bps):
+    """ Convert bps to humand readble string. """
+
     if bps >= 1000000:
         return "%f Mbps" % (float(bps) / 1000000)
     elif bps >= 100000:
@@ -61,15 +66,22 @@ def bps_to_human(bps):
         return "%u bps" % bps
 
 def tx_usecs_80211ga_udp(payload, mtu = 1468):
+    """ Compute the TX time in usec for an IEEE 802.11g/a link. """
+
     if payload > mtu:
-        return tx_usecs_80211ga_udp(payload / 2, mtu) + tx_usecs_80211ga_udp(payload - (payload / 2), mtu)
+        return ( tx_usecs_80211ga_udp(payload / 2, mtu) +
+                 tx_usecs_80211ga_udp(payload - (payload / 2), mtu) )
     else:
         # assume that transmission always succeed
         avg_cw = 15 * 9
-        # payload + UDP header (12) + IP Header (20) + MAC Header (28) + LLC/SNAP Header (8)
-        payload = payload + 12 + 20 + 28 + 8;
+        # payload + UDP header (12) + IP Header (20) + MAC Header (28)
+        # + LLC/SNAP Header (8)
+        payload = payload + 12 + 20 + 28 + 8
         # return DIFS + CW + payload + SIFS + ACK
-        return int(34 + avg_cw + math.ceil(float(payload * 8) / 216) * 4 + 16 + 24 )
+        return int(34 +
+                   avg_cw + math.ceil(float(payload * 8) / 216) * 4 +
+                   16 +
+                   24 )
 
 PROFILES = { '11a' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp },
              '11g' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp } }
@@ -77,23 +89,29 @@ PROFILES = { '11a' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp },
 DEFAULT_PROFILE = '11g'
 
 class Modeller(threading.Thread):
+    """ Modeller class. """
 
     def __init__(self, backend):
 
         super(Modeller, self).__init__()
-        logging.info("starting meter (%s)" % backend.__class__.__name__)
+        logging.info("starting meter (%s)", backend.__class__.__name__)
         self.stop_event = threading.Event()
         self.daemon = True
         self.readings = []
         self.backend = backend
 
     def reset_readings(self):
+        """ Reset readings. """
         self.readings = []
 
     def get_readings(self):
+        """ Return a copy of the readings. """
+
         return self.readings[:]
 
     def shutdown(self):
+        """ Stop modeller. """
+
         logging.info("stopping modeler")
         self.stop_event.set()
 
@@ -101,76 +119,161 @@ class Modeller(threading.Thread):
         while not self.stop_event.isSet():
             try:
                 self.readings.append(self.backend.fetch('power'))
-            except Exception, e:
+            except Exception as ex:
                 self.readings.append(0.0)
-                logging.error(e)
+                logging.exception(ex)
+
+def __hp(handler):
+    """ Log a call to an handler. """
+
+    if handler[0] == "200":
+        logging.debug("calling %s (%s)", handler[1], handler[0])
+    else:
+        logging.error("calling %s (%s)", handler[1], handler[0])
+    return handler
 
 class Probe(object):
+    """ Probe class.
+
+    Represents a connection to a remote Joule probe
+
+    """
 
     def __init__(self, probe):
-        self.ip = probe['ip']
+
+        self.address = probe['ip']
         self.sender_control = probe['receiver_control'] + 1
         self.receiver_control = probe['receiver_control']
         self.receiver_port = probe['receiver_port']
+        self._packet_rate = 10
+        self._packets_nb = 1000
+        self._packetsize_bytes = 64
+        self._duration = 10
+        self._limit = 0
         self.reset()
 
-    def _dh(self, handler):
-        if handler[0] == "200":
-            logging.debug("calling %s (%s)" % (handler[1], handler[0]))
-        else:
-            logging.error("calling %s (%s)" % (handler[1], handler[0]))
-        return handler
-
     def reset(self):
-        logging.info('resetting click send daemon (%s:%s)' % (self.ip, self.sender_control))
-        self._dh(write_handler(self.ip, self.sender_control, 'src.active false'))
-        self._dh(write_handler(self.ip, self.sender_control, 'src.reset'))
-        self._dh(write_handler(self.ip, self.sender_control, 'counter_client.reset'))
-        self._dh(write_handler(self.ip, self.sender_control, 'tr_client.reset'))
-        logging.info('resetting click recv daemon (%s:%s)' % (self.ip, self.sender_control))
-        self._dh(write_handler(self.ip, self.receiver_control, 'counter_server.reset'))
-        self._dh(write_handler(self.ip, self.receiver_control, 'tr_server.reset'))
+        """ Reset probe. """
+
+        logging.info('resetting click tx daemon (%s:%s)', self.address,
+                                                          self.sender_control)
+
+        __hp( write_handler(self.address,
+                            self.sender_control,
+                           'src.active false') )
+
+        __hp( write_handler(self.address,
+                            self.sender_control,
+                            'src.reset') )
+
+        __hp( write_handler(self.address,
+                            self.sender_control,
+                            'counter_client.reset') )
+
+        __hp( write_handler(self.address,
+                            self.sender_control,
+                            'tr_client.reset') )
+
+        logging.info('resetting click rx daemon (%s:%s)', self.address,
+                                                          self.sender_control)
+
+        __hp( write_handler(self.address,
+                            self.receiver_control,
+                            'counter_server.reset'))
+
+        __hp( write_handler(self.address,
+                            self.receiver_control, 'tr_server.reset'))
+
         self._packet_rate = 10
         self._packets_nb = 1000
         self._packetsize_bytes = 64
         self._duration = 10
 
     def status(self):
-        logging.info('fetching click daemon status (%s)' % self.ip)
+        """ Fetch probe status. """
+
+        logging.info('fetching click daemon status (%s)', self.address)
         status = {}
-        status['client_count'] = int(self._dh(read_handler(self.ip, self.sender_control, 'counter_client.count'))[2])
-        status['client_interval'] = float(self._dh(read_handler(self.ip, self.sender_control, 'tr_client.interval'))[2])
-        status['server_count'] = int(self._dh(read_handler(self.ip, self.receiver_control, 'counter_server.count'))[2])
-        status['server_interval'] = float(self._dh(read_handler(self.ip, self.receiver_control, 'tr_server.interval'))[2])
+
+        client_count = __hp(read_handler(self.address,
+                                         self.sender_control,
+                                        'counter_client.count'))
+
+        status['client_count'] = int(client_count[2])
+
+        client_interval = __hp(read_handler(self.address,
+                                            self.sender_control,
+                                            'tr_client.interval'))
+
+        status['client_interval'] = float(client_interval[2])
+
+
+        server_count = __hp(read_handler(self.address,
+                                         self.receiver_control,
+                                        'counter_server.count'))
+
+        status['server_count'] = int(server_count[2])
+
+        server_interval = __hp(read_handler(self.address,
+                                            self.receiver_control,
+                                            'tr_server.interval'))
+
+        status['server_interval'] = float(server_interval[2])
         return status
 
     def configure_stint(self, stint, tps):
+        """ Configure stint. """
 
-        self._packet_rate = int(float(stint['bitrate_mbps'] * 1000000) / float(stint['packetsize_bytes'] * 8))
+        rate = float(stint['bitrate_mbps'] * 1000000)
+        size = float(stint['packetsize_bytes'] * 8)
+
+        self._packet_rate = int( rate / size )
         self._packetsize_bytes = stint['packetsize_bytes']
         self._duration = stint['duration_s']
         self._limit = self._packet_rate * self._duration
 
-        logging.info("will send a total of %u packets" % self._limit )
-        logging.info("payload length is %u bytes" % self._packetsize_bytes )
-        logging.info("transmission rate set to %u pkt/s" % self._packet_rate )
-        logging.info("trasmitting time is %us" % self._duration )
-        logging.info("target bitrate is %s" % bps_to_human(stint['bitrate_mbps'] * 1000000) )
+        bps = bps_to_human(stint['bitrate_mbps'] * 1000000)
 
-        self._dh(write_handler(self.ip, self.sender_control, 'src.length %u' % self._packetsize_bytes))
-        self._dh(write_handler(self.ip, self.sender_control, 'src.rate %u' % self._packet_rate))
-        self._dh(write_handler(self.ip, self.sender_control, 'src.limit %u' % self._limit))
-        self._dh(write_handler(self.ip, self.sender_control, 'sha.rate %u' % tps))
+        logging.info("will send a total of %u packets", self._limit )
+        logging.info("payload length is %u bytes", self._packetsize_bytes )
+        logging.info("transmission rate set to %u pkt/s", self._packet_rate )
+        logging.info("trasmitting time is %us", self._duration )
+        logging.info("target bitrate is %s", bps)
+
+        __hp(write_handler(self.address,
+                           self.sender_control,
+                           'src.length %u' % self._packetsize_bytes))
+
+        __hp(write_handler(self.address,
+                           self.sender_control,
+                           'src.rate %u' % self._packet_rate))
+
+        __hp(write_handler(self.address,
+                           self.sender_control,
+                           'src.limit %u' % self._limit))
+
+        __hp(write_handler(self.address,
+                           self.sender_control,
+                           'sha.rate %u' % tps))
 
     def start_stint(self):
-        logging.info("starting probe (%s)" % self.ip)
-        self._dh(write_handler(self.ip, self.sender_control, 'src.active true'))
+        """ Start stint. """
+
+        logging.info("starting probe (%s)", self.address)
+        __hp(write_handler(self.address,
+                           self.sender_control,
+                           'src.active true'))
 
     def stop_stint(self):
-        logging.info("stopping probe (%s)" % self.ip)
-        self._dh(write_handler(self.ip, self.sender_control, 'src.active false'))
+        """ Stop stint. """
+
+        logging.info("stopping probe (%s)", self.address)
+        __hp(write_handler(self.address,
+                           self.sender_control,
+                           'src.active false'))
 
 def process_readings(readings, virtual = False):
+    """ Process readings. """
 
     median = np.median(readings)
     mean = np.mean(readings)
@@ -178,23 +281,33 @@ def process_readings(readings, virtual = False):
     ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
 
     if virtual:
-        logging.info("[virtual] median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
+        logging.info( "[virtual] median power consumption: %f, mean power "\
+            "consumption: %f, confidence: %f", median, mean, ci )
     else:
-        logging.info("median power consumption: %f, mean power consumption: %f, confidence: %f" % (median, mean, ci))
+        logging.info( "median power consumption: %f, mean power "\
+            "consumption: %f, confidence: %f", median, mean, ci )
 
     return { 'ci' : ci, 'median' : median, 'mean' : mean }
 
 def run_stint(stint, src, dst, run, tot, ml, options):
+    """ Run a stint. """
 
     # process stint
     logging.info('-----------------------------------------------------')
-    logging.info("running profile %u/%u, %s -> %s:%u" % (run, tot, src.ip, dst.ip, dst.receiver_port))
+    logging.info("running profile %u/%u, %s -> %s:%u", run,
+                                                       tot,
+                                                       src.ip,
+                                                       dst.ip,
+                                                       dst.receiver_port )
 
     tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']
     tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])
 
-    logging.info("maximum transaction speed for this medium (%s) is %d TPS" % (options.profile, tps) )
-    logging.info("maximum theoretical goodput is %s" % bps_to_human(stint['packetsize_bytes'] * 8 * tps) )
+    logging.info("maximum transaction speed for this medium (%s) is %d TPS",
+                 options.profile, tps )
+
+    logging.info("maximum theoretical goodput is %s",
+                 bps_to_human(stint['packetsize_bytes']*8*tps) )
 
     # reset probes
     src.reset()
@@ -225,15 +338,22 @@ def run_stint(stint, src, dst, run, tot, ml, options):
     client_interval = src_status['client_interval']
     server_interval = dst_status['server_interval']
 
-    logging.info("client sent %u packets in %f s" % (client_count, client_interval))
-    logging.info("server received %u packets in %f s" % (server_count, server_interval))
+    logging.info("client sent %u packets in %f s", client_count,
+                                                   client_interval )
 
-    tp = 0
+    logging.info("server received %u packets in %f s", server_count,
+                                                       server_interval )
+
+    tp_bps = 0
+
     if client_interval != 0:
-        tp = float(client_count * stint['packetsize_bytes'] * 8) / client_interval
-    gp = 0
+        bits = client_count * stint['packetsize_bytes'] * 8
+        tp_bps = float(bits) / client_interval
+
+    gp_bps = 0
     if server_interval != 0:
-        gp = float(server_count * stint['packetsize_bytes'] * 8) / server_interval
+        bits = server_count * stint['packetsize_bytes'] * 8
+        gp_bps = float(bits) / server_interval
 
     losses = 0
     if client_count != 0:
@@ -242,21 +362,24 @@ def run_stint(stint, src, dst, run, tot, ml, options):
     if not 'stats' in stint:
         stint['stats'] = {}
 
-    stint['stats']['tp'] = tp
-    stint['stats']['gp'] = gp
+    stint['stats']['tp'] = tp_bps
+    stint['stats']['gp'] = gp_bps
     stint['stats']['losses'] = losses
 
-    logging.info("actual throughput %s" % bps_to_human(tp))
-    logging.info("actual goodput %s" % bps_to_human(gp))
-    logging.info("packet error rate %u/%u (%f)" % (client_count, server_count, losses))
+    logging.info("actual throughput %s", bps_to_human(tp_bps) )
+    logging.info("actual goodput %s", bps_to_human(gp_bps) )
+    logging.info("packet error rate %u/%u (%f)", client_count,
+                                                 server_count,
+                                                 losses )
 
-def run_idle_stint(stint, ml, options):
+def run_idle_stint(stint, modeller, options):
+    """ Run the idle stint. """
 
     logging.info("evaluating idle power consumption")
-    logging.info("idle time is %us" % stint['duration_s'] )
-    ml.reset_readings()
+    logging.info("idle time is %us", stint['duration_s'] )
+    modeller.reset_readings()
     time.sleep(stint['duration_s'])
-    readings = ml.get_readings()
+    readings = modeller.get_readings()
 
     # compute statistics
     if options.models is None:
@@ -264,22 +387,49 @@ def run_idle_stint(stint, ml, options):
     else:
         stint['virtual'] = process_readings(readings, True)
 
-def sigint_handler(signal, frame):
+def sigint_handler(*_):
+    """ Handle SIGINT. """
+
     logging.info("Received SIGINT, terminating...")
     sys.exit(0)
 
 def main():
+    """ Launcher method. """
 
-    p = optparse.OptionParser()
-    p.add_option('--device', '-d', dest="device", default=DEFAULT_PORT)
-    p.add_option('--bps', '-b', type="int", dest="bps", default=DEFAULT_PORT_SPEED)
-    p.add_option('--interval', '-i', type="int", dest="interval", default=DEFAULT_INTERVAL)
-    p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
-    p.add_option('--models', '-m', dest="models", default=None)
-    p.add_option('--profile', '-p', dest="profile", default=DEFAULT_PROFILE)
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)
-    p.add_option('--log', '-l', dest="log")
-    options, _ = p.parse_args()
+    parser = optparse.OptionParser()
+
+    parser.add_option('--device', '-d', dest="device", default=DEFAULT_PORT)
+
+    parser.add_option('--bps', '-b',
+                      type="int",
+                      dest="bps",
+                      default=DEFAULT_PORT_SPEED)
+
+    parser.add_option('--interval', '-i',
+                      type="int",
+                      dest="interval",
+                      default=DEFAULT_INTERVAL)
+
+    parser.add_option('--joule', '-j',
+                      dest="joule",
+                      default=DEFAULT_JOULE)
+
+    parser.add_option('--models', '-m',
+                      dest="models",
+                      default=None)
+
+    parser.add_option('--profile', '-p',
+                      dest="profile",
+                      default=DEFAULT_PROFILE)
+
+    parser.add_option('--verbose', '-v',
+                      action="store_true",
+                      dest="verbose",
+                      default=False)
+
+    parser.add_option('--log', '-l', dest="log")
+
+    options, _ = parser.parse_args()
 
     with open(os.path.expanduser(options.joule)) as data_file:
         data = json.load(data_file)
@@ -289,9 +439,15 @@ def main():
             models = json.load(data_file)
 
     if options.verbose:
-        logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.DEBUG,
+                            format=LOG_FORMAT,
+                            filename=options.log,
+                            filemode='w')
     else:
-        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.INFO,
+                            format=LOG_FORMAT,
+                            filename=options.log,
+                            filemode='w')
 
     signal.signal(signal.SIGINT, sigint_handler)
     signal.signal(signal.SIGTERM, sigint_handler)
@@ -300,21 +456,28 @@ def main():
 
     # initialize modeller
     if options.models is None:
-        ml = Modeller(PyEnergino(options.device, options.bps, options.interval))
+        meter = PyEnergino(options.device, options.bps, options.interval)
+        modeller = Modeller(meter)
     else:
-        ml = Modeller(VirtualMeter(models, options.interval))
+        meter = VirtualMeter(models, options.interval)
+        modeller = Modeller(meter)
 
     # starting modeller
-    ml.start()
+    modeller.start()
 
     # initialize probe objects
-    probes = { probe : Probe(data['probes'][probe]) for probe in data['probes'] }
+    probes = { x : Probe(data['probes'][x]) for x in data['probes'] }
 
     # evaluate idle power consumption
-    run_idle_stint(data['idle'], ml, options)
+    run_idle_stint(data['idle'], modeller, options)
 
     with open(os.path.expanduser(options.joule), 'w') as data_file:
-        json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+
+        json.dump(data,
+                  data_file,
+                  sort_keys=True,
+                  indent=4,
+                  separators=(',', ': '))
 
     # idle
     time.sleep(5)
@@ -329,16 +492,20 @@ def main():
         src = probes[stint['src']]
         dst = probes[stint['dst']]
 
-        run_stint(stint, src, dst, i+1, len(data['stints']), ml, options)
+        run_stint(stint, src, dst, i+1, len(data['stints']), modeller, options)
 
         with open(os.path.expanduser(options.joule), 'w') as data_file:
-            json.dump(data, data_file, sort_keys=True, indent=4, separators=(',', ': '))
+            json.dump(data,
+                      data_file,
+                      sort_keys=True,
+                      indent=4,
+                      separators=(',', ': '))
 
         # sleep in order to let the network settle down
         time.sleep(5)
 
     # stopping modeller
-    ml.shutdown()
+    modeller.shutdown()
 
 if __name__ == "__main__":
     main()

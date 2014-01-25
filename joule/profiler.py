@@ -45,11 +45,12 @@ import threading
 import math
 import numpy as np
 
+from energino.energino import PyEnergino
+from energino.energino import DEFAULT_DEVICE
+from energino.energino import DEFAULT_DEVICE_SPEED_BPS
+from energino.energino import DEFAULT_INTERVAL
+
 from click import read_handler, write_handler
-from energino import PyEnergino
-from energino import DEFAULT_PORT
-from energino import DEFAULT_PORT_SPEED
-from energino import DEFAULT_INTERVAL
 from virtualmeter import VirtualMeter
 
 DEFAULT_JOULE = './joule.json'
@@ -388,12 +389,12 @@ def main():
 
     parser = optparse.OptionParser()
 
-    parser.add_option('--device', '-d', dest="device", default=DEFAULT_PORT)
+    parser.add_option('--device', '-d', dest="device", default=DEFAULT_DEVICE)
 
     parser.add_option('--bps', '-b',
                       type="int",
                       dest="bps",
-                      default=DEFAULT_PORT_SPEED)
+                      default=DEFAULT_DEVICE_SPEED_BPS)
 
     parser.add_option('--interval', '-i',
                       type="int",

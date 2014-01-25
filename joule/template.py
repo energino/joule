@@ -30,11 +30,10 @@
 The Joule Template generator.
 
 It generates a Joule descriptor to be used with the Joule Daemon(s) and with
-the Joule Profiler. The generated descriptor defines two
-probes and a list of rates and packet sizes. Stints are defined as all the
-possible permutations between the rates list and the packets sizes list. It
-is possible to define also the duration of each stint. By default the
-descriptor is ~/joule.json.
+the Joule Profiler. The generated descriptor defines two probes and a list of
+rates and packet sizes. Stints are defined as all the possible permutations
+between the rates list and the packets sizes list. It is possible to define
+also the duration of each stint. By default the descriptor is ~/joule.json.
 
 Command Line Arguments:
 
@@ -42,7 +41,7 @@ Command Line Arguments:
   --probea, -a:     probe A's IP Address, e.g. 192.168.1.1
   --probeb, -b:     probe B's IP Address, e.g. 192.168.1.2
   --rates, -r:      list of transmission rates, e.g. "0.1 0.5 1"
-  --sizes, -s:      list probe sizes in bytes (UDP payload), e.g. "64 128, 256"
+  --sizes, -s:      list probe sizes in bytes (UDP payload), e.g. "64 128 256"
   --duration, -d:   probe duration in seconds, e.g. 30
 
 The default behavior is the following:

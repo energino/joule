@@ -42,48 +42,93 @@ DEFAULT_OUTPUT_DIR = './'
 DEFAULT_JOULE = './joule.json'
 
 def main():
+    """ Dump Joule file descriptor as mat. """
 
-    p = optparse.OptionParser()
-    p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
-    p.add_option('--output', '-o', dest="output", default=DEFAULT_OUTPUT_DIR)
-    options, _ = p.parse_args()
+    parser = optparse.OptionParser()
+
+    parser.add_option('--joule', '-j',
+                      dest="joule",
+                      default=DEFAULT_JOULE)
+
+    parser.add_option('--output', '-o',
+                      dest="output",
+                      default=DEFAULT_OUTPUT_DIR)
+
+    options, _ = parser.parse_args()
 
     # load joule descriptor
     with open(os.path.expanduser(options.joule)) as data_file:
         data = json.load(data_file)
 
-    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] }
+    lookup_table = { ( data['models'][model]['src'],
+                       data['models'][model]['dst'] ) :
+                       model for model in data['models'] }
 
     conn = sqlite3.connect(':memory:')
-    c = conn.cursor()
-    c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci, virtual_median, virtual_mean, virtual_ci)''')
+    cursor = conn.cursor()
+    cursor.execute("""create table data (src, dst, bitrate_mbps, goodput_mbps,
+                      packetsize_bytes, losses, median, mean, ci,
+                      virtual_median, virtual_mean, virtual_ci)""")
     conn.commit()
 
     for stint in data['stints']:
-        row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean'], stint['stats']['ci']]
+
+        row = [ stint['src'],
+                stint['dst'],
+                stint['bitrate_mbps'],
+                stint['stats']['gp'] / 1000000,
+                stint['packetsize_bytes'],
+                stint['stats']['losses'],
+                stint['stats']['median'],
+                stint['stats']['mean'],
+                stint['stats']['ci']]
 
         if 'virtual' in stint:
-            virtual_row = [ stint['virtual']['median'], stint['virtual']['mean'], stint['virtual']['ci'] ]
+            virtual_row = [ stint['virtual']['median'],
+                            stint['virtual']['mean'],
+                            stint['virtual']['ci'] ]
         else:
             virtual_row = [ 0.0, 0.0, 0.0 ]
 
-        c.execute("""insert into data values (?,?,?,?,?,?,?,?,?,?,?,?)""", row + virtual_row)
+        cursor.execute("""insert into data values (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       row + virtual_row)
         conn.commit()
 
-    pairs =[]
-    c.execute("select src, dst from data group by src, dst")
-    for row in c:
+    pairs = []
+    cursor.execute("select src, dst from data group by src, dst")
+    for row in cursor:
         pairs.append(row)
 
     for pair in pairs:
+
         if pair in lookup_table:
             model = lookup_table[pair]
         else:
             model = '%s_%s' % pair
-        stints = [ x for x in c.execute("select bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean, ci, virtual_median, virtual_mean, virtual_ci from data where src = \"%s\" and dst = \"%s\"" % tuple(pair)) ]
-        basename = os.path.splitext(os.path.basename(os.path.expanduser(options.joule)))[0]
-        filename = os.path.expanduser(options.output + '/' + basename + '_%s.mat' % model)
-        scipy.io.savemat(filename, { 'DATA' : np.array(stints), 'IDLE' : data['idle']['stats']['median'] }, oned_as = 'column')
+
+        cursor.execute("""select bitrate_mbps, goodput_mbps, packetsize_bytes,
+                                 losses, median, mean, ci, virtual_median,
+                                 virtual_mean, virtual_ci
+                          from data
+                          where src = \"%s\" and dst = \"%s\" """ %
+                       tuple(pair))
+
+        stints = [ x for x in cursor ]
+
+        print(options.joule)
+
+        joule_expand_user = os.path.expanduser(options.joule)
+        joule_basename = os.path.basename(joule_expand_user)
+
+        basename = os.path.splitext(joule_basename)[0]
+
+        filename = os.path.expanduser(options.output +
+                                      '/' +
+                                      basename + '_%s.mat' % model)
+
+        scipy.io.savemat(filename, { 'DATA':np.array(stints),
+                                     'IDLE':data['idle']['stats']['median'] },
+                         oned_as = 'column')
 
 if __name__ == "__main__":
     main()

@@ -120,9 +120,8 @@ class Modeller(threading.Thread):
         while not self.stop_event.isSet():
             try:
                 self.readings.append(self.backend.fetch('power'))
-            except ValueError as ex:
+            except ValueError:
                 self.readings.append(0.0)
-                logging.exception(ex)
 
 def hlog(handler):
     """ Log a call to an handler. """

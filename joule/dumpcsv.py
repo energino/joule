@@ -39,7 +39,7 @@ import optparse
 DEFAULT_JOULE = './joule.json'
 
 def main():
-    """ Launcher method. """
+    """ Dump Joule file descriptor as csv. """
 
     parser = optparse.OptionParser()
 
@@ -80,17 +80,17 @@ def main():
 
         if options.byrate:
 
-            pairs = sorted(pairs[entry],
-                           key=lambda d: (d[1], d[0]),
-                           reverse=False)
+            sorted_pairs = sorted(pairs[entry],
+                                  key=lambda d: (d[1], d[0]),
+                                  reverse=False)
 
         else:
 
-            pairs = sorted(pairs[entry],
-                           key=lambda d: (d[0], d[1]),
-                           reverse=False)
+            sorted_pairs = sorted(pairs[entry],
+                                  key=lambda d: (d[0], d[1]),
+                                  reverse=False)
 
-        pairs_str = [ "%f;%f;%f;%f;%f" % tuple(line) for line in pairs ]
+        pairs_str = [ "%f;%f;%f;%f;%f" % tuple(line) for line in sorted_pairs ]
         print("\n".join(pairs_str))
 
 if __name__ == "__main__":

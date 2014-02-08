@@ -45,40 +45,73 @@ DEFAULT_MODELS = './models.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 
 def main():
+    """ Load descriptor file and compute models. """
 
-    p = optparse.OptionParser()
-    p.add_option('--joule', '-j', dest="joule", default=DEFAULT_JOULE)
-    p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)
-    p.add_option('--log', '-l', dest="log")
-    options, _ = p.parse_args()
+    parser = optparse.OptionParser()
+
+    parser.add_option('--joule', '-j',
+                      dest="joule",
+                      default=DEFAULT_JOULE)
+
+    parser.add_option('--models', '-m',
+                      dest="models",
+                      default=DEFAULT_MODELS)
+
+    parser.add_option('--verbose', '-v',
+                      action="store_true",
+                      dest="verbose",
+                      default=False)
+
+    parser.add_option('--log', '-l', dest="log")
+
+    options, _ = parser.parse_args()
 
     with open(os.path.expanduser(options.joule)) as data_file:
         data = json.load(data_file)
 
     if options.verbose:
-        logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.DEBUG,
+                            format=LOG_FORMAT,
+                            filename=options.log,
+                            filemode='w')
     else:
-        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, filename=options.log, filemode='w')
+        logging.basicConfig(level=logging.INFO,
+                            format=LOG_FORMAT,
+                            filename=options.log,
+                            filemode='w')
 
     logging.info("starting eJOULE modeller")
     logging.info("importing data into db")
 
-    lookup_table = { ( data['models'][model]['src'], data['models'][model]['dst'] ) : model for model in data['models'] }
+    lookup_table = { ( data['models'][model]['src'],
+                       data['models'][model]['dst'] ) :
+                       model for model in data['models'] }
 
     conn = sqlite3.connect(':memory:')
-    c = conn.cursor()
-    c.execute('''create table data (src, dst, bitrate_mbps, goodput_mbps, packetsize_bytes, losses, median, mean)''')
+    cursor = conn.cursor()
+
+    cursor.execute("""create table data (src, dst, bitrate_mbps, goodput_mbps,
+                      packetsize_bytes, losses, median, mean)""")
+
     conn.commit()
 
     for stint in data['stints']:
-        row = [ stint['src'], stint['dst'], stint['bitrate_mbps'], stint['stats']['gp'] / 1000000, stint['packetsize_bytes'], stint['stats']['losses'], stint['stats']['median'], stint['stats']['mean']]
-        c.execute("""insert into data values (?,?,?,?,?,?,?,?)""", row)
+
+        row = [ stint['src'],
+                stint['dst'],
+                stint['bitrate_mbps'],
+                stint['stats']['gp'] / 1000000,
+                stint['packetsize_bytes'],
+                stint['stats']['losses'],
+                stint['stats']['median'],
+                stint['stats']['mean'] ]
+
+        cursor.execute("""insert into data values (?,?,?,?,?,?,?,?)""", row)
         conn.commit()
 
     logging.info("generating models")
 
-    pairs = conn.cursor().execute("select src, dst from data group by src, dst")
+    pairs = conn.cursor().execute("select src,dst from data group by src,dst")
 
     models = { 'gamma' : data['idle']['stats']['median'] }
 
@@ -124,11 +157,16 @@ def main():
 
             rates = conn.cursor().execute(sql).fetchall()
 
-            slopes.append( [ size[0] , (rates[len(rates) - 1][1] - rates[0][1]) / (rates[len(rates) - 1][0] - rates[0][0]) ] )
+            slope = ( (rates[len(rates) - 1][1] - rates[0][1]) /
+                      (rates[len(rates) - 1][0] - rates[0][0]) )
+
+            slopes.append( [ size[0], slope ] )
 
         A = np.array(slopes)
 
-        popt, _ = curve_fit(lambda x, a0, a1: a0 * (1 + a1 / x), A[:,0], A[:,1])
+        fitting_func = lambda x, a0, a1: a0 * (1 + a1 / x)
+
+        popt, _ = curve_fit(fitting_func, A[:, 0], A[:, 1])
 
         models[model]['alpha0'] = popt[0]
         models[model]['alpha1'] = popt[1]
@@ -155,7 +193,8 @@ def main():
 
             sql = """SELECT bitrate_mbps, packetsize_bytes, median
                      FROM DATA
-                     WHERE packetsize_bytes = %s AND src = \"%s\" AND dst = \"%s\"""" % (size + pair)
+                     WHERE packetsize_bytes = %s AND
+                           src = \"%s\" AND dst = \"%s\"""" % (size + pair)
 
             rates = conn.cursor().execute(sql)
 
@@ -163,20 +202,28 @@ def main():
 
             for rate in rates:
 
-                x = rate[0]
-                d = rate[1]
+                x_var = rate[0]
+                d_var = rate[1]
 
-                if x > models[model]['x_max'][d]:
-                    x = models[model]['x_max'][d]
+                if x_var > models[model]['x_max'][d_var]:
+                    x_var = models[model]['x_max'][d_var]
 
-                beta.append(rate[2] - ( models[model]['alpha0'] * ( 1 + models[model]['alpha1'] / d) * x + models['gamma'] ))
+                beta.append(rate[2] -
+                            ( models[model]['alpha0'] *
+                              ( 1 + models[model]['alpha1'] / d_var) *
+                              x_var +
+                              models['gamma'] ))
 
             models[model]['beta'][size[0]] = np.mean(beta)
 
     with open(os.path.expanduser(options.models), 'w') as data_file:
-        json.dump(models, data_file, indent=4, separators=(',', ': '), sort_keys=True)
+        json.dump(models,
+                  data_file,
+                  indent=4,
+                  separators=(',', ': '),
+                  sort_keys=True)
 
-    logging.info("models saved to %s" % os.path.expanduser(options.models))
+    logging.info("models saved to %s", os.path.expanduser(options.models))
 
 if __name__ == "__main__":
     main()

@@ -54,18 +54,18 @@ def _handler(address, port, read_write, handler):
     buf = buf[buf.find('\r\n')+2:]
 
     if buf[0:3] != "200":
-        return [ buf[0:3], buf[4:buf.find('\r\n')], '' ]
+        return [buf[0:3], buf[4:buf.find('\r\n')], '']
 
     data = buf[buf.find('\r\n')+2:]
 
     if not data.startswith("DATA"):
-        return [ buf[0:3], buf[4:buf.find('\r\n')], '' ]
+        return [buf[0:3], buf[4:buf.find('\r\n')], '']
 
     length = int(data[data.find(' ')+1:data.find('\r\n')])
 
     data = data[data.find('\r\n')+2:]
 
-    return [ buf[0:3], buf[4:buf.find('\r\n')], data[0:length] ]
+    return [buf[0:3], buf[4:buf.find('\r\n')], data[0:length]]
 
 def read_handler(address, port, handler):
     """ Connect to the ControlSocket element and read 'handler'. """

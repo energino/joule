@@ -60,9 +60,9 @@ def main():
     with open(os.path.expanduser(options.joule)) as data_file:
         data = json.load(data_file)
 
-    lookup_table = { ( data['models'][model]['src'],
-                       data['models'][model]['dst'] ) :
-                       model for model in data['models'] }
+    lookup_table = {(data['models'][model]['src'],
+                     data['models'][model]['dst']) :
+                     model for model in data['models']}
 
     conn = sqlite3.connect(':memory:')
     cursor = conn.cursor()
@@ -73,22 +73,22 @@ def main():
 
     for stint in data['stints']:
 
-        row = [ stint['src'],
-                stint['dst'],
-                stint['bitrate_mbps'],
-                stint['stats']['gp'] / 1000000,
-                stint['packetsize_bytes'],
-                stint['stats']['losses'],
-                stint['stats']['median'],
-                stint['stats']['mean'],
-                stint['stats']['ci']]
+        row = [stint['src'],
+               stint['dst'],
+               stint['bitrate_mbps'],
+               stint['stats']['gp'] / 1000000,
+               stint['packetsize_bytes'],
+               stint['stats']['losses'],
+               stint['stats']['median'],
+               stint['stats']['mean'],
+               stint['stats']['ci']]
 
         if 'virtual' in stint:
-            virtual_row = [ stint['virtual']['median'],
-                            stint['virtual']['mean'],
-                            stint['virtual']['ci'] ]
+            virtual_row = [stint['virtual']['median'],
+                           stint['virtual']['mean'],
+                           stint['virtual']['ci']]
         else:
-            virtual_row = [ 0.0, 0.0, 0.0 ]
+            virtual_row = [0.0, 0.0, 0.0]
 
         cursor.execute("""insert into data values (?,?,?,?,?,?,?,?,?,?,?,?)""",
                        row + virtual_row)
@@ -113,7 +113,7 @@ def main():
                           where src = \"%s\" and dst = \"%s\" """ %
                        tuple(pair))
 
-        stints = [ x for x in cursor ]
+        stints = [x for x in cursor]
 
         print(options.joule)
 
@@ -126,9 +126,9 @@ def main():
                                       '/' +
                                       basename + '_%s.mat' % model)
 
-        scipy.io.savemat(filename, { 'DATA':np.array(stints),
-                                     'IDLE':data['idle']['stats']['median'] },
-                         oned_as = 'column')
+        scipy.io.savemat(filename, {'DATA':np.array(stints),
+                                    'IDLE':data['idle']['stats']['median']},
+                         oned_as='column')
 
 if __name__ == "__main__":
     main()

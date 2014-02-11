@@ -66,12 +66,12 @@ def bps_to_human(bps):
     else:
         return "%u bps" % bps
 
-def tx_usecs_80211ga_udp(payload, mtu = 1468):
+def tx_usecs_80211ga_udp(payload, mtu=1468):
     """ Compute the TX time in usec for an IEEE 802.11g/a link. """
 
     if payload > mtu:
-        return ( tx_usecs_80211ga_udp(payload / 2, mtu) +
-                 tx_usecs_80211ga_udp(payload - (payload / 2), mtu) )
+        return (tx_usecs_80211ga_udp(payload / 2, mtu) +
+                tx_usecs_80211ga_udp(payload - (payload / 2), mtu))
     else:
         # assume that transmission always succeed
         avg_cw = 15 * 9
@@ -82,10 +82,10 @@ def tx_usecs_80211ga_udp(payload, mtu = 1468):
         return int(34 +
                    avg_cw + math.ceil(float(payload * 8) / 216) * 4 +
                    16 +
-                   24 )
+                   24)
 
-PROFILES = { '11a' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp },
-             '11g' : { 'tx_usecs_udp' : tx_usecs_80211ga_udp } }
+PROFILES = {'11a' : {'tx_usecs_udp' : tx_usecs_80211ga_udp},
+            '11g' : {'tx_usecs_udp' : tx_usecs_80211ga_udp}}
 
 DEFAULT_PROFILE = '11g'
 
@@ -156,31 +156,32 @@ class Probe(object):
         logging.info('resetting click tx daemon (%s:%s)', self.address,
                                                           self.sender_control)
 
-        hlog( write_handler(self.address,
-                            self.sender_control,
-                           'src.active false') )
+        hlog(write_handler(self.address,
+                           self.sender_control,
+                          'src.active false'))
 
-        hlog( write_handler(self.address,
-                            self.sender_control,
-                            'src.reset') )
+        hlog(write_handler(self.address,
+                           self.sender_control,
+                           'src.reset'))
 
-        hlog( write_handler(self.address,
-                            self.sender_control,
-                            'counter_client.reset') )
+        hlog(write_handler(self.address,
+                           self.sender_control,
+                           'counter_client.reset'))
 
-        hlog( write_handler(self.address,
-                            self.sender_control,
-                            'tr_client.reset') )
+        hlog(write_handler(self.address,
+                           self.sender_control,
+                           'tr_client.reset'))
 
         logging.info('resetting click rx daemon (%s:%s)', self.address,
                                                           self.sender_control)
 
-        hlog( write_handler(self.address,
-                            self.receiver_control,
-                            'counter_server.reset'))
+        hlog(write_handler(self.address,
+                           self.receiver_control,
+                           'counter_server.reset'))
 
-        hlog( write_handler(self.address,
-                            self.receiver_control, 'tr_server.reset'))
+        hlog(write_handler(self.address,
+                           self.receiver_control,
+                           'tr_server.reset'))
 
         self._packet_rate = 10
         self._packetsize_bytes = 64
@@ -225,16 +226,16 @@ class Probe(object):
 
         duration = stint['duration_s']
 
-        self._packet_rate = int( rate / size )
+        self._packet_rate = int(rate / size)
         self._packetsize_bytes = stint['packetsize_bytes']
         self._limit = self._packet_rate * duration
 
         bps = bps_to_human(stint['bitrate_mbps'] * 1000000)
 
-        logging.info("will send a total of %u packets", self._limit )
-        logging.info("payload length is %u bytes", self._packetsize_bytes )
-        logging.info("transmission rate set to %u pkt/s", self._packet_rate )
-        logging.info("trasmitting time is %us", duration )
+        logging.info("will send a total of %u packets", self._limit)
+        logging.info("payload length is %u bytes", self._packetsize_bytes)
+        logging.info("transmission rate set to %u pkt/s", self._packet_rate)
+        logging.info("trasmitting time is %us", duration)
         logging.info("target bitrate is %s", bps)
 
         hlog(write_handler(self.address,
@@ -269,22 +270,22 @@ class Probe(object):
                            self.sender_control,
                            'src.active false'))
 
-def process_readings(readings, virtual = False):
+def process_readings(readings, virtual=False):
     """ Process readings. """
 
     median = np.median(readings)
     mean = np.mean(readings)
 
-    ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)) )
+    ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)))
 
     if virtual:
-        logging.info( "[virtual] median power consumption: %f, mean power "\
-            "consumption: %f, confidence: %f", median, mean, ci )
+        logging.info("[virtual] median power consumption: %f, mean power "\
+            "consumption: %f, confidence: %f", median, mean, ci)
     else:
-        logging.info( "median power consumption: %f, mean power "\
-            "consumption: %f, confidence: %f", median, mean, ci )
+        logging.info("median power consumption: %f, mean power "\
+            "consumption: %f, confidence: %f", median, mean, ci)
 
-    return { 'ci' : ci, 'median' : median, 'mean' : mean }
+    return {'ci' : ci, 'median' : median, 'mean' : mean}
 
 def run_stint(stint, src, dst, modeller, options):
     """ Run a stint. """
@@ -293,10 +294,10 @@ def run_stint(stint, src, dst, modeller, options):
     tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])
 
     logging.info("maximum transaction speed for this medium (%s) is %d TPS",
-                 options.profile, tps )
+                 options.profile, tps)
 
     logging.info("maximum theoretical goodput is %s",
-                 bps_to_human(stint['packetsize_bytes']*8*tps) )
+                 bps_to_human(stint['packetsize_bytes']*8*tps))
 
     # reset probes
     src.reset()
@@ -329,10 +330,10 @@ def process_stint(stint, src, dst, modeller, options):
     server_interval = dst_status['server_interval']
 
     logging.info("client sent %u packets in %f s", client_count,
-                                                   client_interval )
+                                                   client_interval)
 
     logging.info("server received %u packets in %f s", server_count,
-                                                       server_interval )
+                                                       server_interval)
 
     tp_bps = 0
 
@@ -347,7 +348,7 @@ def process_stint(stint, src, dst, modeller, options):
 
     losses = 0
     if client_count != 0:
-        losses = float( client_count - server_count ) / client_count
+        losses = float(client_count - server_count) / client_count
 
     if not 'stats' in stint:
         stint['stats'] = {}
@@ -356,17 +357,17 @@ def process_stint(stint, src, dst, modeller, options):
     stint['stats']['gp'] = gp_bps
     stint['stats']['losses'] = losses
 
-    logging.info("actual throughput %s", bps_to_human(tp_bps) )
-    logging.info("actual goodput %s", bps_to_human(gp_bps) )
+    logging.info("actual throughput %s", bps_to_human(tp_bps))
+    logging.info("actual goodput %s", bps_to_human(gp_bps))
     logging.info("packet error rate %u/%u (%f)", client_count,
                                                  server_count,
-                                                 losses )
+                                                 losses)
 
 def run_idle_stint(stint, modeller, options):
     """ Run the idle stint. """
 
     logging.info("evaluating idle power consumption")
-    logging.info("idle time is %us", stint['duration_s'] )
+    logging.info("idle time is %us", stint['duration_s'])
     modeller.reset_readings()
     time.sleep(stint['duration_s'])
     readings = modeller.get_readings()
@@ -456,7 +457,7 @@ def main():
     modeller.start()
 
     # initialize probe objects
-    probes = { x : Probe(data['probes'][x]) for x in data['probes'] }
+    probes = {x : Probe(data['probes'][x]) for x in data['probes']}
 
     # evaluate idle power consumption
     run_idle_stint(data['idle'], modeller, options)
@@ -487,7 +488,7 @@ def main():
                                                            len(data['stints']),
                                                            src.address,
                                                            dst.address,
-                                                           dst.receiver_port )
+                                                           dst.receiver_port)
 
         # run stint
         run_stint(stint, src, dst, modeller, options)

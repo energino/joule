@@ -26,7 +26,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """
-The Joule Profiler. The profiler accepts as input a Joule descriptor defining 
+The Joule Profiler. The profiler accepts as input a Joule descriptor defining
 the probes available on the network and the stints to be executed. The output
 is written in the original Joule descriptor and includes the total number of
 packet TX/RX, the goodput and the throughput, the average packet loss and the
@@ -37,7 +37,7 @@ the idle power consumption.
 import os
 import json
 import optparse
-import logging 
+import logging
 import sys
 import numpy as np
 import scipy.io
@@ -56,11 +56,11 @@ def main():
     p.add_option('--interval', '-i', dest="interval", type="int", default=DEFAULT_INTERVAL)
     p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
     p.add_option('--matlab', '-t', dest="matlab")
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)    
+    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)
     p.add_option('--log', '-l', dest="log")
     options, _ = p.parse_args()
 
-    with open(os.path.expanduser(options.models)) as data_file:    
+    with open(os.path.expanduser(options.models)) as data_file:
         models = json.load(data_file)
 
     if options.verbose:

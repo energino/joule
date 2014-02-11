@@ -37,23 +37,33 @@ import time
 import json
 import os
 import datetime
+import scipy.io
 
-from click import write_handler
+from joule.click import write_handler
 
 DEFAULT_MODELS = './models.json'
 DEFAULT_INTERVAL = 2000
 
 LOG_FORMAT = '%(asctime)-15s %(message)s'
 
-def compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d):
-    if x < x_min:
+def compute_power(models, model, x_min, x_mbps, d_bytes):
+    """ Compure power consumption for one point. """
+
+    alpha0 = models[model]['alpha0']
+    alpha1 = models[model]['alpha1']
+    x_max = models[model]['x_max']
+    beta = models[model]['beta']
+    gamma = models['gamma']
+
+    if x_mbps < x_min:
         return gamma
-    if x > x_max[str(d)]:
-        x = x_max[str(d)]
-    alpha_d = alpha0 * ( 1 + (alpha1 / d))
-    return alpha_d * x + beta[str(d)] + gamma
+    if x_mbps > x_max[str(d_bytes)]:
+        x_mbps = x_max[str(d_bytes)]
+    alpha_d = alpha0 * (1 + (alpha1 / d_bytes))
+    return alpha_d * x_mbps + beta[str(d_bytes)] + gamma
 
 class VirtualMeter(object):
+    """ Virtual Power meter. """
 
     def __init__(self, models, interval):
 
@@ -61,8 +71,12 @@ class VirtualMeter(object):
         self.interval = interval
 
         self.packet_sizes = {}
-        self.packet_sizes['RX'] = sorted([ int(x) for x in self.models['RX']['x_max'].keys() ], key=int)
-        self.packet_sizes['TX'] = sorted([ int(x) for x in self.models['TX']['x_max'].keys() ], key=int)
+
+        x_max_rx = [int(x) for x in self.models['RX']['x_max'].keys()]
+        x_max_tx = [int(x) for x in self.models['TX']['x_max'].keys()]
+
+        self.packet_sizes['RX'] = sorted(x_max_rx, key=int)
+        self.packet_sizes['TX'] = sorted(x_max_tx, key=int)
 
         self.bins = {}
         self.bins['RX'] = self.generate_bins('RX')
@@ -70,7 +84,8 @@ class VirtualMeter(object):
 
         self.last = time.time()
 
-    def fetch(self, field = None):
+    def fetch(self, field=None):
+        """ Fetch statistics. """
 
         if self.interval > 0:
             time.sleep(float(self.interval) / 1000)
@@ -90,23 +105,21 @@ class VirtualMeter(object):
 
         readings = {}
         readings['power'] = power_tx + power_rx + self.models['gamma']
-        readings['at'] = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        readings['at'] = \
+            datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
         if field != None:
             return readings[field]
         return readings
 
     def compute(self, bins_curr, bins_prev, model, delta):
+        """ Compute power consumption. """
 
         power = 0.0
 
-        diff = [ x[0] for x in (bins_curr - bins_prev).tolist() ]
+        diff = [x[0] for x in (bins_curr - bins_prev).tolist()]
 
-        alpha0 = self.models[model]['alpha0']
-        alpha1 = self.models[model]['alpha1']
-        x_max = self.models[model]['x_max']
-        beta = self.models[model]['beta']
-        gamma = self.models['gamma']
+
 
         # this should be generalized
         x_min = 0.06
@@ -114,31 +127,44 @@ class VirtualMeter(object):
         for i in range(0, len(diff)):
             if diff[i] == 0.0:
                 continue
-            x = ( ( self.packet_sizes[model][i] * diff[i] * 8 ) / delta ) / 1000000
-            d = self.packet_sizes[model][i]
-            p = compute_power(alpha0, alpha1, x_min, x_max, beta, gamma, x, d) - gamma
-            power = power + p
-            logging.debug("%u bytes, %u pkts, %f s -> %f [Mb/s] %f [W]" % (d, diff[i], delta, x, p))
+
+            pkt_size = self.packet_sizes[model][i]
+
+            x_mbps = ((pkt_size * diff[i] * 8) / delta) / 1000000
+
+            d_bytes = self.packet_sizes[model][i]
+
+            pwr = compute_power(self.models, model, x_min, x_mbps, d_bytes) - \
+                self.models['gamma']
+
+            power = power + pwr
+
+            logging.debug("%u bytes, %u pkts, %f s -> %f [Mb/s] %f [W]",
+                d_bytes, diff[i], delta, x_mbps, pwr)
 
         return power
 
     def generate_bins(self, model):
-        results = write_handler('127.0.0.1', 5555, "%s.write_text_file /tmp/%s" % (model, model))
+        """ Poll click process. """
+
+        results = write_handler('127.0.0.1', 5555,
+                                "%s.write_text_file /tmp/%s" % (model, model))
         if results[0] != '200':
             return np.array([])
         time.sleep(0.1)
         try:
-            A = np.genfromtxt('/tmp/%s' % model, dtype=int, comments="!")
+            samples = np.genfromtxt('/tmp/%s' % model, dtype=int, comments="!")
         except IOError:
-            A = np.array([[]])
+            samples = np.array([[]])
         bins = np.zeros(shape=(len(self.packet_sizes[model]),1))
-        if np.ndim(A) != 2:
+        if np.ndim(samples) != 2:
             return bins
-        for a in A:
-            if len(a) == 0:
+        for sample in samples:
+            if len(sample) == 0:
                 continue
-            size = a[0]
-            count = a[1]
+            # account for ethernet (14), ip (20), and udp (8) headers
+            size = sample[0] - 14 - 20 - 8
+            count = sample[1]
             for i in range(0, len(self.packet_sizes[model])):
                 if size <= self.packet_sizes[model][i]:
                     bins[i] = bins[i] + count
@@ -146,16 +172,31 @@ class VirtualMeter(object):
         return bins
 
 def main():
+    """ Main method. """
 
-    p = optparse.OptionParser()
+    parser = optparse.OptionParser()
 
-    p.add_option('--interval', '-i', dest="interval", type="int", default=DEFAULT_INTERVAL)
-    p.add_option('--models', '-m', dest="models", default=DEFAULT_MODELS)
-    p.add_option('--matlab', '-t', dest="matlab")
-    p.add_option('--verbose', '-v', action="store_true", dest="verbose", default=False)
-    p.add_option('--log', '-l', dest="log")
+    parser.add_option('--interval', '-i',
+                      dest="interval",
+                      type="int",
+                      default=DEFAULT_INTERVAL)
 
-    options, _ = p.parse_args()
+    parser.add_option('--models', '-m',
+                      dest="models",
+                      default=DEFAULT_MODELS)
+
+    parser.add_option('--matlab', '-t',
+                      dest="matlab")
+
+    parser.add_option('--verbose', '-v',
+                      action="store_true",
+                      dest="verbose",
+                      default=False)
+
+    parser.add_option('--log', '-l',
+                      dest="log")
+
+    options, _ = parser.parse_args()
 
     with open(os.path.expanduser(options.models)) as data_file:
         models = json.load(data_file)
@@ -165,26 +206,31 @@ def main():
     else:
         lvl = logging.INFO
 
-    logging.basicConfig(level=lvl, format=LOG_FORMAT, filename=options.log, filemode='w')
+    logging.basicConfig(level=lvl,
+                        format=LOG_FORMAT,
+                        filename=options.log,
+                        filemode='w')
 
-    vm = VirtualMeter(models, options.interval)
+    virtual = VirtualMeter(models, options.interval)
 
     if options.matlab != None:
         mat = []
 
     while True:
         try:
-            readings = vm.fetch()
+            readings = virtual.fetch()
         except KeyboardInterrupt:
             logging.debug("Bye!")
             sys.exit()
         except:
             logging.debug("0 [W]")
         else:
-            logging.info("%f [W]" % readings['power'])
+            logging.info("%f [W]", readings['power'])
 
         if options.matlab != None:
-            scipy.io.savemat(options.matlab, { 'READINGS' : np.array(mat) }, oned_as = 'column')
+            scipy.io.savemat(options.matlab,
+                             {'READINGS' : np.array(mat)},
+                             oned_as='column')
 
 if __name__ == "__main__":
     main()

@@ -83,9 +83,9 @@ def main():
     logging.info("starting eJOULE modeller")
     logging.info("importing data into db")
 
-    lookup_table = { ( data['models'][model]['src'],
-                       data['models'][model]['dst'] ) :
-                       model for model in data['models'] }
+    lookup_table = {(data['models'][model]['src'],
+                     data['models'][model]['dst']) :
+                     model for model in data['models']}
 
     conn = sqlite3.connect(':memory:')
     cursor = conn.cursor()
@@ -97,14 +97,14 @@ def main():
 
     for stint in data['stints']:
 
-        row = [ stint['src'],
-                stint['dst'],
-                stint['bitrate_mbps'],
-                stint['stats']['gp'] / 1000000,
-                stint['packetsize_bytes'],
-                stint['stats']['losses'],
-                stint['stats']['median'],
-                stint['stats']['mean'] ]
+        row = [stint['src'],
+               stint['dst'],
+               stint['bitrate_mbps'],
+               stint['stats']['gp'] / 1000000,
+               stint['packetsize_bytes'],
+               stint['stats']['losses'],
+               stint['stats']['median'],
+               stint['stats']['mean']]
 
         cursor.execute("""insert into data values (?,?,?,?,?,?,?,?)""", row)
         conn.commit()
@@ -113,7 +113,7 @@ def main():
 
     pairs = conn.cursor().execute("select src,dst from data group by src,dst")
 
-    models = { 'gamma' : data['idle']['stats']['median'] }
+    models = {'gamma' : data['idle']['stats']['median']}
 
     for pair in pairs:
 
@@ -153,14 +153,14 @@ def main():
             sql = """SELECT bitrate_mbps, median
                      FROM DATA
                      WHERE bitrate_mbps < %f AND packetsize_bytes = %s AND src = \"%s\" AND dst = \"%s\"
-                     ORDER BY bitrate_mbps""" % (tuple([ x_max ]) + size + pair)
+                     ORDER BY bitrate_mbps""" % (tuple([x_max]) + size + pair)
 
             rates = conn.cursor().execute(sql).fetchall()
 
-            slope = ( (rates[len(rates) - 1][1] - rates[0][1]) /
-                      (rates[len(rates) - 1][0] - rates[0][0]) )
+            slope = ((rates[len(rates) - 1][1] - rates[0][1]) /
+                     (rates[len(rates) - 1][0] - rates[0][0]))
 
-            slopes.append( [ size[0], slope ] )
+            slopes.append([size[0], slope])
 
         A = np.array(slopes)
 
@@ -209,10 +209,10 @@ def main():
                     x_var = models[model]['x_max'][d_var]
 
                 beta.append(rate[2] -
-                            ( models[model]['alpha0'] *
-                              ( 1 + models[model]['alpha1'] / d_var) *
-                              x_var +
-                              models['gamma'] ))
+                            (models[model]['alpha0'] *
+                             (1 + models[model]['alpha1'] / d_var) *
+                             x_var +
+                             models['gamma']))
 
             models[model]['beta'][size[0]] = np.mean(beta)
 

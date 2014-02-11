@@ -58,23 +58,23 @@ def main():
 
     for stint in data['stints']:
 
-        probe_ids = ( stint['src'], stint['dst'] )
+        probe_ids = (stint['src'], stint['dst'])
 
         if not probe_ids in pairs:
             pairs[probe_ids] = []
 
-        run = [ stint['bitrate_mbps'],
-                stint['packetsize_bytes'],
-                stint['stats']['losses'],
-                stint['stats']['median'],
-                stint['stats']['mean'] ]
+        run = [stint['bitrate_mbps'],
+               stint['packetsize_bytes'],
+               stint['stats']['losses'],
+               stint['stats']['median'],
+               stint['stats']['mean']]
 
         pairs[probe_ids].append(run)
 
     for entry in pairs:
 
-        print("# %s -> %s" % ( data['probes'][entry[0]]['ip'],
-                               data['probes'][entry[1]]['ip']))
+        print("# %s -> %s" % (data['probes'][entry[0]]['ip'],
+                              data['probes'][entry[1]]['ip']))
 
         print("# bitrate, length, loss, median power, mean power")
 
@@ -90,7 +90,7 @@ def main():
                                   key=lambda d: (d[0], d[1]),
                                   reverse=False)
 
-        pairs_str = [ "%f;%f;%f;%f;%f" % tuple(line) for line in sorted_pairs ]
+        pairs_str = ["%f;%f;%f;%f;%f" % tuple(line) for line in sorted_pairs]
         print("\n".join(pairs_str))
 
 if __name__ == "__main__":

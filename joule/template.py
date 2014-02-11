@@ -100,7 +100,7 @@ def main():
                             filename=options.log,
                             filemode='w')
 
-    joule = { 'probes' : {}, 'models' : {}, 'stints' : [] }
+    joule = {'probes' : {}, 'models' : {}, 'stints' : []}
 
     for rate in options.rates.split(" "):
 
@@ -126,7 +126,7 @@ def main():
 
             joule['stints'].append(stint)
 
-    joule['idle'] = { "duration_s": options.duration }
+    joule['idle'] = {"duration_s": options.duration}
 
     joule['probes'] = {
         "A": {

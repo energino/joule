@@ -112,12 +112,25 @@ def main():
             logging.debug("Bye!")
             sys.exit()
         except:
-            logging.debug("%s [V] %s [A] %s [W] %s [samples] %s [window] %s "\
-                          "[virtual] %s [error]" % tuple(["0.0"] * 7))
+            logging.debug("0.0 [V] 0.0 [A] 0.0 [W] 0.0 [samples] " \
+                          "0.0 [window] 0.0 [virtual] 0.0 [error]")
         else:
             if options.matlab != None:
-                mat.append((readings['voltage'], readings['current'], readings['power'], readings['samples'], readings['window'], virtual_readings['power'], virtual_readings['power'] - readings['power']))
-            logging.info("%s [V] %s [A] %s [W] %s [samples] %s [window] %s [virtual] %s [error]" % (readings['voltage'], readings['current'], readings['power'], readings['samples'], readings['window'], virtual_readings['power'], virtual_readings['power'] - readings['power']))
+
+                mat.append((readings['voltage'],
+                            readings['current'],
+                            readings['power'],
+                            readings['samples'],
+                            readings['window'],
+                            virtual_readings['power'],
+                            virtual_readings['power'] - readings['power']))
+
+            logging.info("%s [V] %s [A] %s [W] %s [samples] %s [window] "\
+                         "%s [virtual] %s [error]", readings['voltage'],
+                         readings['current'], readings['power'],
+                         readings['samples'], readings['window'],
+                         virtual_readings['power'],
+                         virtual_readings['power'] - readings['power'])
 
         if options.matlab != None:
             scipy.io.savemat(options.matlab,

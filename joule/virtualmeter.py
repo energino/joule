@@ -39,7 +39,7 @@ import os
 import datetime
 import scipy.io
 
-from joule.click import write_handler
+from click import write_handler
 
 DEFAULT_MODELS = './models.json'
 DEFAULT_INTERVAL = 2000

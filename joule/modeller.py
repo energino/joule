@@ -144,8 +144,6 @@ def main():
 
         sizes = conn.cursor().execute(sql)
 
-        models[model]['beta'] = {}
-
         for size in sizes:
 
             x_max = models[model]['x_max'][size[0]]
@@ -171,14 +169,6 @@ def main():
         models[model]['alpha0'] = popt[0]
         models[model]['alpha1'] = popt[1]
 
-        if 'TX' in models:
-            models['TX']['alpha0'] = 0.0065
-            models['TX']['alpha1'] = 966.8018
-
-        if 'RX' in models:
-            models['RX']['alpha0'] = 0.002565092236542
-            models['RX']['alpha1'] = 1749.155415849026
-
         sql = """SELECT packetsize_bytes
                  FROM DATA
                  WHERE src = \"%s\" AND dst = \"%s\"
@@ -186,35 +176,6 @@ def main():
                  ORDER BY packetsize_bytes ASC""" % pair
 
         sizes = conn.cursor().execute(sql)
-
-        models[model]['beta'] = {}
-
-        for size in sizes:
-
-            sql = """SELECT bitrate_mbps, packetsize_bytes, median
-                     FROM DATA
-                     WHERE packetsize_bytes = %s AND
-                           src = \"%s\" AND dst = \"%s\"""" % (size + pair)
-
-            rates = conn.cursor().execute(sql)
-
-            beta = []
-
-            for rate in rates:
-
-                x_var = rate[0]
-                d_var = rate[1]
-
-                if x_var > models[model]['x_max'][d_var]:
-                    x_var = models[model]['x_max'][d_var]
-
-                beta.append(rate[2] -
-                            (models[model]['alpha0'] *
-                             (1 + models[model]['alpha1'] / d_var) *
-                             x_var +
-                             models['gamma']))
-
-            models[model]['beta'][size[0]] = np.mean(beta)
 
     with open(os.path.expanduser(options.models), 'w') as data_file:
         json.dump(models,

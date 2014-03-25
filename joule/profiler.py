@@ -51,7 +51,6 @@ from energino.energino import DEFAULT_DEVICE_SPEED_BPS
 from energino.energino import DEFAULT_INTERVAL
 
 from click import read_handler, write_handler
-from virtualmeter import VirtualMeter
 
 DEFAULT_JOULE = './joule.json'
 LOG_FORMAT = '%(asctime)-15s %(message)s'
@@ -270,7 +269,7 @@ class Probe(object):
                            self.sender_control,
                            'src.active false'))
 
-def process_readings(readings, virtual=False):
+def process_readings(readings):
     """ Process readings. """
 
     median = np.median(readings)
@@ -278,12 +277,8 @@ def process_readings(readings, virtual=False):
 
     ci = 1.96 * (np.std(readings) / np.sqrt(len(readings)))
 
-    if virtual:
-        logging.info("[virtual] median power consumption: %f, mean power "\
-            "consumption: %f, confidence: %f", median, mean, ci)
-    else:
-        logging.info("median power consumption: %f, mean power "\
-            "consumption: %f, confidence: %f", median, mean, ci)
+    logging.info("median power consumption: %f, mean power "\
+        "consumption: %f, confidence: %f", median, mean, ci)
 
     return {'ci' : ci, 'median' : median, 'mean' : mean}
 
@@ -316,10 +311,7 @@ def process_stint(stint, src, dst, modeller, options):
     """ Process stint. """
 
     # compute statistics
-    if options.models is None:
-        stint['stats'] = process_readings(modeller.get_readings(), False)
-    else:
-        stint['virtual'] = process_readings(modeller.get_readings(), True)
+    stint['stats'] = process_readings(modeller.get_readings())
 
     src_status = src.status()
     dst_status = dst.status()
@@ -373,10 +365,7 @@ def run_idle_stint(stint, modeller, options):
     readings = modeller.get_readings()
 
     # compute statistics
-    if options.models is None:
-        stint['stats'] = process_readings(readings, False)
-    else:
-        stint['virtual'] = process_readings(readings, True)
+    stint['stats'] = process_readings(readings)
 
 def sigint_handler(*_):
     """ Handle SIGINT. """
@@ -404,10 +393,6 @@ def main():
     parser.add_option('--joule', '-j',
                       dest="joule",
                       default=DEFAULT_JOULE)
-
-    parser.add_option('--models', '-m',
-                      dest="models",
-                      default=None)
 
     parser.add_option('--profile', '-p',
                       dest="profile",
@@ -446,12 +431,8 @@ def main():
     logging.info("starting Joule Profiler")
 
     # initialize modeller
-    if options.models is None:
-        meter = PyEnergino(options.device, options.bps, options.interval)
-        modeller = Modeller(meter)
-    else:
-        meter = VirtualMeter(models, options.interval)
-        modeller = Modeller(meter)
+    meter = PyEnergino(options.device, options.bps, options.interval)
+    modeller = Modeller(meter)
 
     # starting modeller
     modeller.start()

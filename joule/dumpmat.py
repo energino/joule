@@ -67,8 +67,7 @@ def main():
     conn = sqlite3.connect(':memory:')
     cursor = conn.cursor()
     cursor.execute("""create table data (src, dst, bitrate_mbps, goodput_mbps,
-                      packetsize_bytes, losses, median, mean, ci,
-                      virtual_median, virtual_mean, virtual_ci)""")
+                      packetsize_bytes, losses, median, mean, ci)""")
     conn.commit()
 
     for stint in data['stints']:
@@ -83,15 +82,7 @@ def main():
                stint['stats']['mean'],
                stint['stats']['ci']]
 
-        if 'virtual' in stint:
-            virtual_row = [stint['virtual']['median'],
-                           stint['virtual']['mean'],
-                           stint['virtual']['ci']]
-        else:
-            virtual_row = [0.0, 0.0, 0.0]
-
-        cursor.execute("""insert into data values (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                       row + virtual_row)
+        cursor.execute("insert into data values (?,?,?,?,?,?,?,?,?)", row)
         conn.commit()
 
     pairs = []
@@ -107,15 +98,12 @@ def main():
             model = '%s_%s' % pair
 
         cursor.execute("""select bitrate_mbps, goodput_mbps, packetsize_bytes,
-                                 losses, median, mean, ci, virtual_median,
-                                 virtual_mean, virtual_ci
+                                 losses, median, mean, ci
                           from data
                           where src = \"%s\" and dst = \"%s\" """ %
                        tuple(pair))
 
         stints = [x for x in cursor]
-
-        print(options.joule)
 
         joule_expand_user = os.path.expanduser(options.joule)
         joule_basename = os.path.basename(joule_expand_user)

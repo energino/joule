@@ -52,7 +52,6 @@ def compute_power(models, model, x_min, x_mbps, d_bytes):
     alpha0 = models[model]['alpha0']
     alpha1 = models[model]['alpha1']
     x_max = models[model]['x_max']
-    beta = models[model]['beta']
     gamma = models['gamma']
 
     if x_mbps < x_min:
@@ -60,7 +59,7 @@ def compute_power(models, model, x_min, x_mbps, d_bytes):
     if x_mbps > x_max[str(d_bytes)]:
         x_mbps = x_max[str(d_bytes)]
     alpha_d = alpha0 * (1 + (alpha1 / d_bytes))
-    return alpha_d * x_mbps + beta[str(d_bytes)] + gamma
+    return alpha_d * x_mbps + gamma
 
 class VirtualMeter(object):
     """ Virtual Power meter. """

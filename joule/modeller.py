@@ -111,9 +111,24 @@ def main():
 
     logging.info("generating models")
 
-    pairs = conn.cursor().execute("select src,dst from data group by src,dst")
+    bins_set = set()
 
-    models = {'gamma' : data['idle']['stats']['median']}
+    bins = conn.cursor().execute("select  packetsize_bytes from data")
+
+    for entry in bins:
+        bins_set.add(entry[0])
+
+    bins_sorted = sorted(list(bins_set))
+
+    models = {}
+
+    models['gamma'] = data['idle']['stats']['median']
+    models['bins'] = bins_sorted
+    models['hwmode'] = "11a"
+    models['channel'] = "20"
+    models['streams'] = 1
+
+    pairs = conn.cursor().execute("select src,dst from data group by src,dst")
 
     for pair in pairs:
 

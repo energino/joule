@@ -65,28 +65,53 @@ def bps_to_human(bps):
     else:
         return "%u bps" % bps
 
-def tx_usecs_80211ga_udp(payload, mtu=1468):
-    """ Compute the TX time in usec for an IEEE 802.11g/a link. """
+MODES = {('11a', '20', 1) : {'difs' : 34,
+                             'sifs' : 16,
+                             'slot' : 9,
+                             'min_cw' : 15,
+                             'symbol_duration': 4,
+                             'bits_per_symbol' : 216}}
 
-    if payload > mtu:
-        return (tx_usecs_80211ga_udp(payload / 2, mtu) +
-                tx_usecs_80211ga_udp(payload - (payload / 2), mtu))
-    else:
-        # assume that transmission always succeed
-        avg_cw = 15 * 9
-        # payload + UDP header (12) + IP Header (20) + MAC Header (28)
-        # + LLC/SNAP Header (8)
-        payload = payload + 12 + 20 + 28 + 8
-        # return DIFS + CW + payload + SIFS + ACK
-        return int(34 +
-                   avg_cw + math.ceil(float(payload * 8) / 216) * 4 +
-                   16 +
-                   24)
+def compute_tx_usec(hwmode, channel, streams, length, mtu=1472):
+    """ Compute max bitrate for a given frame length using the
+    transactional model. """
 
-PROFILES = {'11a' : {'tx_usecs_udp' : tx_usecs_80211ga_udp},
-            '11g' : {'tx_usecs_udp' : tx_usecs_80211ga_udp}}
+    if length > mtu:
+        return (compute_tx_usec(hwmode, channel, streams, length / 2, mtu) +
+                compute_tx_usec(hwmode, channel, streams, length / 2, mtu))
 
-DEFAULT_PROFILE = '11g'
+    mode = (hwmode, channel, streams)
+
+    difs = MODES[mode]['difs']
+    sifs = MODES[mode]['sifs']
+    slot = MODES[mode]['slot']
+    min_cw = MODES[mode]['min_cw']
+    bits_per_symbol = MODES[mode]['bits_per_symbol']
+    symbol_duration = MODES[mode]['symbol_duration']
+
+    # remove ethernet header push mac header
+    length = length + 8 + 20 + 28 + 8
+
+    # compute number of symbols required (the 6 bits are for OFDM encoding)
+    symbols = math.ceil(float(length * 8 + 6) / bits_per_symbol)
+
+    # 20 usec synch header, each symbol requires 4 usec
+    data = 20 + symbols * symbol_duration
+
+    # 20 usec synch header, plus one ack symbol
+    ack = 20 + symbol_duration
+
+    # worst case backoff
+    backoff = slot * min_cw
+
+    # total time to send the frame
+    dur_trans = difs + data + sifs + ack + backoff
+
+    return dur_trans
+
+DEFAULT_HWMODE = "11a"
+DEFAULT_CHANNEL = "20"
+DEFAULT_STREAMS = 1
 
 class Modeller(threading.Thread):
     """ Modeller class. """
@@ -285,11 +310,15 @@ def process_readings(readings):
 def run_stint(stint, src, dst, modeller, options):
     """ Run a stint. """
 
-    tx_usecs_udp = PROFILES[options.profile]['tx_usecs_udp']
-    tps = 1000000 / tx_usecs_udp(stint['packetsize_bytes'])
+    tx_usecs_udp = compute_tx_usec(options.hwmode,
+                                   options.channel,
+                                   options.streams,
+                                   stint['packetsize_bytes'])
 
-    logging.info("maximum transaction speed for this medium (%s) is %d TPS",
-                 options.profile, tps)
+    tps = 1000000 / tx_usecs_udp
+
+    logging.info("maximum tps for this medium (%s,%s,%u) is %d TPS",
+                 options.hwmode, options.channel, options.streams, tps)
 
     logging.info("maximum theoretical goodput is %s",
                  bps_to_human(stint['packetsize_bytes']*8*tps))
@@ -394,9 +423,17 @@ def main():
                       dest="joule",
                       default=DEFAULT_JOULE)
 
-    parser.add_option('--profile', '-p',
-                      dest="profile",
-                      default=DEFAULT_PROFILE)
+    parser.add_option('--hwmode', '-m',
+                      dest="hwmode",
+                      default=DEFAULT_HWMODE)
+
+    parser.add_option('--channel', '-c',
+                      dest="channel",
+                      default=DEFAULT_CHANNEL)
+
+    parser.add_option('--streams', '-s',
+                      dest="streams",
+                      default=DEFAULT_STREAMS)
 
     parser.add_option('--verbose', '-v',
                       action="store_true",
@@ -409,10 +446,6 @@ def main():
 
     with open(os.path.expanduser(options.joule)) as data_file:
         data = json.load(data_file)
-
-    if options.models != None:
-        with open(os.path.expanduser(options.models)) as data_file:
-            models = json.load(data_file)
 
     if options.verbose:
         logging.basicConfig(level=logging.DEBUG,

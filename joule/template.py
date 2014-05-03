@@ -134,8 +134,8 @@ def main():
             "receiver": options.probeb,
             "sender_port": 9997,
             "receiver_port": 9998,
-            "receiver_control": 8888,
-            "sender_control": 8889
+            "receiver_control": 6666,
+            "sender_control": 6667
         },
         "B": {
             "ip": options.probeb,
